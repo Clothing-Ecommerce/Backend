@@ -1,0 +1,161 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  user_id    Int      @id @default(autoincrement())
+  username   String
+  password   String
+  email      String   @unique
+  role       Role
+  status     Status
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  carts      Cart[]
+  orders     Order[]
+  comments   Comment[]
+  products   Product[] @relation("SellerProducts")
+  suppliers  Supplier[]
+}
+
+model Supplier {
+  supplier_id  Int      @id @default(autoincrement())
+  name         String
+  contact_info String
+  address      String
+  seller_id    Int
+  seller       User     @relation(fields: [seller_id], references: [user_id])
+}
+
+model Category {
+  category_id Int      @id @default(autoincrement())
+  name        String
+  description String?
+  status      CategoryStatus
+  products    Product[]
+}
+
+model Product {
+  product_id  Int        @id @default(autoincrement())
+  name        String
+  description String?
+  price       Float
+  stock       Int
+  image_url   String?
+  category_id Int
+  seller_id   Int
+  created_at  DateTime   @default(now())
+  updated_at  DateTime   @updatedAt
+  category    Category   @relation(fields: [category_id], references: [category_id])
+  seller      User       @relation("SellerProducts", fields: [seller_id], references: [user_id])
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
+  comments    Comment[]
+}
+
+model Cart {
+  cart_id    Int        @id @default(autoincrement())
+  user_id    Int        @unique
+  created_at DateTime   @default(now())
+  updated_at DateTime   @updatedAt
+  user       User       @relation(fields: [user_id], references: [user_id])
+  cartItems  CartItem[]
+}
+
+model CartItem {
+  cart_item_id Int      @id @default(autoincrement())
+  cart_id      Int
+  product_id   Int
+  quantity     Int
+  added_at     DateTime @default(now())
+  cart         Cart     @relation(fields: [cart_id], references: [cart_id])
+  product      Product  @relation(fields: [product_id], references: [product_id])
+}
+
+model Order {
+  order_id         Int          @id @default(autoincrement())
+  user_id          Int
+  total_amount     Float
+  shipping_address String
+  shipping_method  String
+  status           OrderStatus
+  created_at       DateTime     @default(now())
+  updated_at       DateTime     @updatedAt
+  user             User         @relation(fields: [user_id], references: [user_id])
+  orderItems       OrderItem[]
+  payment          Payment?
+}
+
+model OrderItem {
+  order_item_id Int     @id @default(autoincrement())
+  order_id      Int
+  product_id    Int
+  quantity      Int
+  price_at_time Float
+  order         Order   @relation(fields: [order_id], references: [order_id])
+  product       Product @relation(fields: [product_id], references: [product_id])
+}
+
+model Payment {
+  payment_id     Int           @id @default(autoincrement())
+  order_id       Int           @unique
+  amount         Float
+  payment_method PaymentMethod
+  payment_status PaymentStatus
+  transaction_id String?
+  paid_at        DateTime      @default(now())
+  order          Order         @relation(fields: [order_id], references: [order_id])
+}
+
+model Comment {
+  comment_id   Int      @id @default(autoincrement())
+  user_id      Int
+  product_id   Int
+  comment      String
+  rating       Int
+  comment_date DateTime @default(now())
+  user         User     @relation(fields: [user_id], references: [user_id])
+  product      Product  @relation(fields: [product_id], references: [product_id])
+}
+
+enum Role {
+  Customer
+  Seller
+  Admin
+}
+
+enum Status {
+  Active
+  Inactive
+}
+
+enum CategoryStatus {
+  Pending
+  Approved
+  Rejected
+}
+
+enum OrderStatus {
+  Pending
+  Processing
+  Shipped
+  Delivered
+  Cancelled
+}
+
+enum PaymentMethod {
+  COD
+  CreditCard
+  DigitalWallet
+}
+
+enum PaymentStatus {
+  Pending
+  Completed
+  Failed
+}
