@@ -12,8 +12,8 @@ model User {
   username   String
   password   String
   email      String   @unique
-  role       Role
-  status     Status
+  role       Role     @default(Customer)
+  status     Status   @default(Active)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
   carts      Cart[]
