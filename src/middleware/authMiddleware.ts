@@ -1,9 +1,8 @@
 import { Request, Response, NextFunction } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
-import dotenv from "dotenv";
-dotenv.config();
+import { jwtConfig } from "../utils/jwtConfig";
 
-const JWT_SECRET_KEY = process.env.JWT_SECRET_KEY || "";
+// const JWT_SECRET_KEY = process.env.JWT_SECRET_KEY || "";
 
 export interface AuthenticatedRequest extends Request {
   user?: JwtPayload;
@@ -25,7 +24,7 @@ export const authenticateJWT = (
   const token = authHeader.split(" ")[1];
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET_KEY);
+    const decoded = jwt.verify(token, jwtConfig.jwtSecretKey);
 
     if (typeof decoded === "string") {
       return res.status(403).json({ message: "Token không hợp lệ" });
