@@ -32,12 +32,20 @@ import cookieParser from "cookie-parser";
 
 const app = express();
 
-app.use(
-  cors({
-    origin: "http://localhost:5173", // domain của FE
-    credentials: true, // nếu dùng cookie
-  })
-);
+// app.use(
+//   cors({
+//     origin: "http://localhost:5173", // domain của FE
+//     // credentials: true, // nếu dùng cookie
+//   })
+// );
+
+// Cấu hình CORS
+app.use(cors({
+  origin: 'http://localhost:5173', // Cho phép truy cập từ nguồn gốc frontend của bạn
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE', // Cho phép các phương thức HTTP cần thiết
+  credentials: true, // Rất quan trọng nếu bạn gửi cookie hoặc header Authorization
+  optionsSuccessStatus: 204, // Để lại mặc định cho các yêu cầu preflight OPTIONS
+}));
 
 app.use(express.json());
 app.use(morgan("combined"));

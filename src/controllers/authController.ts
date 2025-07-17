@@ -12,16 +12,16 @@ export const register = async (req: Request, res: Response) => {
     const { username, email, password } = req.body;
 
     const token = await registerUser(username, email, password);
-    // return res.status(201).json({ token });
-    return res
-      .cookie("token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production", // gửi qua HTTPS ở production
-        sameSite: "strict", // chống CSRF
-        maxAge: 24 * 60 * 60 * 1000, // 1 ngày
-      })
-      .status(200)
-      .json({ message: "Registration successful" });
+    return res.status(201).json({ token });
+    // return res
+    //   .cookie("token", token, {
+    //     httpOnly: true,
+    //     secure: process.env.NODE_ENV === "production", // gửi qua HTTPS ở production
+    //     sameSite: "strict", // chống CSRF
+    //     maxAge: 24 * 60 * 60 * 1000, // 1 ngày
+    //   })
+    //   .status(200)
+    //   .json({ message: "Registration successful" });
   } catch (err) {
     // Kiểm tra xem còn cách viết nào khác không (sử dụng tạm thời)
     if (
@@ -47,16 +47,16 @@ export const login = async (req: Request, res: Response) => {
     const { email, password } = req.body;
 
     const token = await loginUser(email, password);
-    // return res.status(200).json({ token });
-    return res
-      .cookie("token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production", // gửi qua HTTPS ở production
-        sameSite: "strict", // chống CSRF
-        maxAge: 24 * 60 * 60 * 1000, // 1 ngày
-      })
-      .status(200)
-      .json({ message: "Login successful" });
+    return res.status(200).json({ token });
+    // return res
+    //   .cookie("token", token, {
+    //     httpOnly: true,
+    //     secure: process.env.NODE_ENV === "production", // gửi qua HTTPS ở production
+    //     sameSite: "strict", // chống CSRF
+    //     maxAge: 24 * 60 * 60 * 1000, // 1 ngày
+    //   })
+    //   .status(200)
+    //   .json({ message: "Login successful" });
   } catch (err) {
     // Kiểm tra xem còn cách viết nào khác không (sử dụng tạm thời)
     if (
