@@ -1,6 +1,11 @@
 import { Request, Response } from "express";
 import { loginSchema, registerSchema } from "../validations/authValidation";
-import { loginUser, registerUser } from "../services/authService";
+import {
+  getUserProfile,
+  loginUser,
+  registerUser,
+} from "../services/authService";
+import { AuthenticatedRequest } from "../middleware/authMiddleware";
 
 export const register = async (req: Request, res: Response) => {
   try {
@@ -11,8 +16,15 @@ export const register = async (req: Request, res: Response) => {
 
     const { username, email, password } = req.body;
 
-    const token = await registerUser(username, email, password);
-    return res.status(201).json({ token });
+    const user = await registerUser(username, email, password);
+    return res.status(201).json({
+      message: "Registration successful. Please log in.",
+      user: {
+        username: user.username,
+        email: user.email,
+        role: user.role,
+      },
+    });
     // return res
     //   .cookie("token", token, {
     //     httpOnly: true,
@@ -46,8 +58,16 @@ export const login = async (req: Request, res: Response) => {
 
     const { email, password } = req.body;
 
-    const token = await loginUser(email, password);
-    return res.status(200).json({ token });
+    // const token = await loginUser(email, password);
+    // return res.status(200).json(token);
+    const { token, user } = await loginUser(email, password);
+
+    return res.status(200).json({
+      message: "Login successful",
+      token,
+      user,
+    });
+
     // return res
     //   .cookie("token", token, {
     //     httpOnly: true,
@@ -57,18 +77,42 @@ export const login = async (req: Request, res: Response) => {
     //   })
     //   .status(200)
     //   .json({ message: "Login successful" });
+  } catch (err: any) {
+    if (err?.message === "INVALID_CREDENTIALS") {
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
+
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+export const getProfile = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    // Đảm bảo rằng req.user tồn tại và có userId
+    if (!req.user || typeof req.user.userId === "undefined") {
+      return res.status(401).json({
+        message: "Người dùng chưa xác thực hoặc thông tin không đầy đủ",
+      });
+    }
+
+    const userId = req.user.userId;
+    const userProfile = await getUserProfile(userId);
+    return res.status(200).json(userProfile);
   } catch (err) {
-    // Kiểm tra xem còn cách viết nào khác không (sử dụng tạm thời)
+    console.error("Error fetching user profile:", err);
     if (
       typeof err === "object" &&
       err !== null &&
       "message" in err &&
-      typeof (err as any).message === "string" &&
-      (err as any).message === "EMAIL_EXISTS"
+      typeof (err as any).message === "string"
     ) {
-      return res.status(409).json({ message: "Email already registered" });
+      if ((err as any).message === "USER_NOT_FOUND") {
+        return res.status(404).json({ message: "Không tìm thấy người dùng" });
+      }
     }
-    return res.status(500).json({ message: "Server error" });
+    return res
+      .status(500)
+      .json({ message: "Lỗi máy chủ khi lấy thông tin profile" });
   }
 };
 

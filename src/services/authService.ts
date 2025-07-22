@@ -25,16 +25,7 @@ export const registerUser = async (
     },
   });
 
-  const token = jwt.sign(
-    // payload
-    { userId: user.user_id, email: user.email, role: user.role },
-    // secret key
-    jwtConfig.jwtSecretKey,
-    //options
-    { expiresIn: "1d" }
-  );
-
-  return token;
+  return user;
 };
 
 export const loginUser = async (email: string, password: string) => {
@@ -57,5 +48,35 @@ export const loginUser = async (email: string, password: string) => {
     { expiresIn: "1d" }
   );
 
-  return token;
+  return {
+    token,
+    user: {
+      id: user.user_id,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+    },
+  };
+};
+
+export const getUserProfile = async (userId: number) => {
+  const user = await prisma.user.findUnique({
+    where: { user_id: userId },
+    // Chọn các trường bạn muốn trả về cho profile
+    select: {
+      // user_id: true,
+      username: true,
+      email: true,
+      role: true,
+      status: true,
+      created_at: true,
+      updated_at: true,
+    },
+  });
+
+  if (!user) {
+    throw new Error("USER_NOT_FOUND");
+  }
+
+  return user;
 };

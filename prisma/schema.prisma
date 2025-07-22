@@ -49,6 +49,7 @@ model Product {
   image_url   String?
   category_id Int
   seller_id   Int
+  brand_id    Int?
   created_at  DateTime   @default(now())
   updated_at  DateTime   @updatedAt
   category    Category   @relation(fields: [category_id], references: [category_id])
@@ -56,6 +57,7 @@ model Product {
   cartItems   CartItem[]
   orderItems  OrderItem[]
   comments    Comment[]
+  brand       Brand?     @relation(fields: [brand_id], references: [brand_id])
 }
 
 model Cart {
@@ -121,6 +123,13 @@ model Comment {
   comment_date DateTime @default(now())
   user         User     @relation(fields: [user_id], references: [user_id])
   product      Product  @relation(fields: [product_id], references: [product_id])
+}
+
+model Brand {
+  brand_id      Int      @id @default(autoincrement())
+  name          String   @unique
+  logo_url      String?  
+  products      Product[] 
 }
 
 enum Role {
