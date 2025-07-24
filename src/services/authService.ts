@@ -41,7 +41,7 @@ export const loginUser = async (email: string, password: string) => {
 
   const token = jwt.sign(
     // payload
-    { userId: user.user_id, email: user.email, role: user.role },
+    { userId: user.userId, email: user.email, role: user.role },
     // secret key
     jwtConfig.jwtSecretKey,
     //options
@@ -51,7 +51,7 @@ export const loginUser = async (email: string, password: string) => {
   return {
     token,
     user: {
-      id: user.user_id,
+      id: user.userId,
       username: user.username,
       email: user.email,
       role: user.role,
@@ -61,7 +61,7 @@ export const loginUser = async (email: string, password: string) => {
 
 export const getUserProfile = async (userId: number) => {
   const user = await prisma.user.findUnique({
-    where: { user_id: userId },
+    where: { userId: userId },
     // Chọn các trường bạn muốn trả về cho profile
     select: {
       // user_id: true,
@@ -69,8 +69,8 @@ export const getUserProfile = async (userId: number) => {
       email: true,
       role: true,
       status: true,
-      created_at: true,
-      updated_at: true,
+      createdAt: true,
+      updatedAt: true,
     },
   });
 
