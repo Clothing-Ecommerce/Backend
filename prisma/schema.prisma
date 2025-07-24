@@ -8,14 +8,18 @@ generator client {
 }
 
 model User {
-  user_id    Int      @id @default(autoincrement())
+  userId    Int      @id @default(autoincrement())
   username   String
   password   String
   email      String   @unique
+  address    String?
+  phone      String?
+  gender     String?
+  dateOfBirth DateTime?
   role       Role     @default(Customer)
   status     Status   @default(Active)
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
   carts      Cart[]
   orders     Order[]
   comments   Comment[]
@@ -24,112 +28,150 @@ model User {
 }
 
 model Supplier {
-  supplier_id  Int      @id @default(autoincrement())
-  name         String
-  contact_info String
-  address      String
-  seller_id    Int
-  seller       User     @relation(fields: [seller_id], references: [user_id])
+  supplierId  Int      @id @default(autoincrement())
+  name        String
+  contactInfo String
+  address     String
+  sellerId    Int
+  seller      User     @relation(fields: [sellerId], references: [userId])
 }
 
 model Category {
-  category_id Int      @id @default(autoincrement())
-  name        String
+  categoryId Int      @id @default(autoincrement())
+  name       String
   description String?
   status      CategoryStatus
   products    Product[]
 }
 
+// model Product {
+//   productId  Int        @id @default(autoincrement())
+//   name       String
+//   description String?
+//   price      Float
+//   stock      Int
+//   imageUrl   String?
+//   categoryId Int
+//   sellerId   Int
+//   brandId    Int?
+//   createdAt  DateTime   @default(now())
+//   updatedAt  DateTime   @updatedAt
+//   category   Category   @relation(fields: [categoryId], references: [categoryId])
+//   seller     User       @relation("SellerProducts", fields: [sellerId], references: [userId])
+//   cartItems  CartItem[]
+//   orderItems  OrderItem[]
+//   comments    Comment[]
+//   brand      Brand?     @relation(fields: [brandId], references: [brandId])
+// }
+
 model Product {
-  product_id  Int        @id @default(autoincrement())
-  name        String
-  description String?
-  price       Float
-  stock       Int
-  image_url   String?
-  category_id Int
-  seller_id   Int
-  brand_id    Int?
-  created_at  DateTime   @default(now())
-  updated_at  DateTime   @updatedAt
-  category    Category   @relation(fields: [category_id], references: [category_id])
-  seller      User       @relation("SellerProducts", fields: [seller_id], references: [user_id])
-  cartItems   CartItem[]
-  orderItems  OrderItem[]
-  comments    Comment[]
-  brand       Brand?     @relation(fields: [brand_id], references: [brand_id])
+  productId      Int       @id @default(autoincrement())
+  name           String
+  description    String?
+  price          Int
+  originalPrice  Int?
+  inStock        Boolean   @default(true)
+  stockCount     Int       @default(0)
+  rating         Float?    @default(0)
+  reviewsCount   Int?      @default(0)
+  isNew          Boolean   @default(false)
+  isSale         Boolean   @default(false)
+
+  // JSON fields
+  images          Json      // array of image URLs
+  colors          Json      // array of { name, value }
+  sizes           Json      // array of size strings
+  features        Json?     // array of features (string[])
+  specifications  Json?     // object: { Material, Fit, Origin, ... }
+
+  // Foreign keys
+  categoryId     Int
+  brandId        Int
+  sellerId       Int
+
+  // Timestamps
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Relations
+  category        Category  @relation(fields: [categoryId], references: [categoryId])
+  brand           Brand     @relation(fields: [brandId], references: [brandId])
+  seller          User      @relation("SellerProducts", fields: [sellerId], references: [userId])
+  comments        Comment[] // one-to-many: product can have many comments
+  cartItems       CartItem[]
+  orderItems      OrderItem[]
 }
 
 model Cart {
-  cart_id    Int        @id @default(autoincrement())
-  user_id    Int        @unique
-  created_at DateTime   @default(now())
-  updated_at DateTime   @updatedAt
-  user       User       @relation(fields: [user_id], references: [user_id])
-  cartItems  CartItem[]
+  cartId    Int        @id @default(autoincrement())
+  userId    Int        @unique
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  user      User       @relation(fields: [userId], references: [userId])
+  cartItems CartItem[]
 }
 
 model CartItem {
-  cart_item_id Int      @id @default(autoincrement())
-  cart_id      Int
-  product_id   Int
-  quantity     Int
-  added_at     DateTime @default(now())
-  cart         Cart     @relation(fields: [cart_id], references: [cart_id])
-  product      Product  @relation(fields: [product_id], references: [product_id])
+  cartItemId Int      @id @default(autoincrement())
+  cartId     Int
+  productId  Int
+  quantity   Int
+  addedAt    DateTime @default(now())
+  cart      Cart     @relation(fields: [cartId], references: [cartId])
+  product   Product  @relation(fields: [productId], references: [productId])
 }
 
 model Order {
-  order_id         Int          @id @default(autoincrement())
-  user_id          Int
-  total_amount     Float
-  shipping_address String
-  shipping_method  String
-  status           OrderStatus
-  created_at       DateTime     @default(now())
-  updated_at       DateTime     @updatedAt
-  user             User         @relation(fields: [user_id], references: [user_id])
-  orderItems       OrderItem[]
-  payment          Payment?
+  orderId         Int          @id @default(autoincrement())
+  userId          Int
+  totalAmount     Float
+  shippingAddress String
+  shippingMethod  String
+  status          OrderStatus
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  user            User         @relation(fields: [userId], references: [userId])
+  orderItems      OrderItem[]
+  payment         Payment?
 }
 
 model OrderItem {
-  order_item_id Int     @id @default(autoincrement())
-  order_id      Int
-  product_id    Int
-  quantity      Int
-  price_at_time Float
-  order         Order   @relation(fields: [order_id], references: [order_id])
-  product       Product @relation(fields: [product_id], references: [product_id])
+  orderItemId Int     @id @default(autoincrement())
+  orderId      Int
+  productId    Int
+  quantity     Int
+  priceAtTime  Float
+  order       Order   @relation(fields: [orderId], references: [orderId])
+  product     Product @relation(fields: [productId], references: [productId])
 }
 
 model Payment {
-  payment_id     Int           @id @default(autoincrement())
-  order_id       Int           @unique
-  amount         Float
-  payment_method PaymentMethod
-  payment_status PaymentStatus
-  transaction_id String?
-  paid_at        DateTime      @default(now())
-  order          Order         @relation(fields: [order_id], references: [order_id])
+  paymentId     Int           @id @default(autoincrement())
+  orderId       Int           @unique
+  amount        Float
+  paymentMethod  PaymentMethod
+  paymentStatus  PaymentStatus
+  transactionId  String?
+  paidAt        DateTime      @default(now())
+  order          Order         @relation(fields: [orderId], references: [orderId])
 }
 
 model Comment {
-  comment_id   Int      @id @default(autoincrement())
-  user_id      Int
-  product_id   Int
+  commentId   Int      @id @default(autoincrement())
+  userId      Int
+  productId   Int
   comment      String
   rating       Int
-  comment_date DateTime @default(now())
-  user         User     @relation(fields: [user_id], references: [user_id])
-  product      Product  @relation(fields: [product_id], references: [product_id])
+  commentDate DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [userId])
+  product    Product  @relation(fields: [productId], references: [productId])
 }
 
 model Brand {
-  brand_id      Int      @id @default(autoincrement())
-  name          String   @unique
-  logo_url      String?  
-  products      Product[] 
+  brandId      Int      @id @default(autoincrement())
+  name         String   @unique
+  logoUrl     String?  
+  products     Product[] 
 }
 
 enum Role {
