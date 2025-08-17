@@ -1,8 +1,8 @@
-import { Router } from 'express';
-import { getBrands } from '../controllers/brandController';
+import { Router } from "express";
+import { getBrandsController } from "../controllers/brandController";
 
 const router = Router();
 
-router.get('/all', getBrands);
+router.get("/", getBrandsController);
 
 export default router;
