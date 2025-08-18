@@ -6,6 +6,7 @@ import morgan from "morgan";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import authRoutes from "./routes/authRoute";
+import userRoutes from "./routes/userRoute";
 import productRoutes from "./routes/productRoute";
 import categoryRoutes from "./routes/categoryRoute";
 import brandRoutes from "./routes/brandRoute";
@@ -25,6 +26,7 @@ app.use(morgan("combined"));
 app.use(cookieParser());
 
 app.use("/auth", authRoutes);
+app.use("/user", userRoutes);
 app.use("/products", productRoutes);
 app.use("/categories", categoryRoutes);
 app.use("/brands", brandRoutes);

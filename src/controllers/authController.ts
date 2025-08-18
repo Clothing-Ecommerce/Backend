@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
 import { loginSchema, registerSchema } from "../validations/authValidation";
 import {
-  getUserProfile,
   loginUser,
   registerUser,
 } from "../services/authService";
@@ -86,35 +85,6 @@ export const login = async (req: Request, res: Response) => {
   }
 };
 
-export const getProfile = async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    // Đảm bảo rằng req.user tồn tại và có userId
-    if (!req.user || typeof req.user.userId === "undefined") {
-      return res.status(401).json({
-        message: "Người dùng chưa xác thực hoặc thông tin không đầy đủ",
-      });
-    }
-
-    const userId = req.user.userId;
-    const userProfile = await getUserProfile(userId);
-    return res.status(200).json(userProfile);
-  } catch (err) {
-    console.error("Error fetching user profile:", err);
-    if (
-      typeof err === "object" &&
-      err !== null &&
-      "message" in err &&
-      typeof (err as any).message === "string"
-    ) {
-      if ((err as any).message === "USER_NOT_FOUND") {
-        return res.status(404).json({ message: "Không tìm thấy người dùng" });
-      }
-    }
-    return res
-      .status(500)
-      .json({ message: "Lỗi máy chủ khi lấy thông tin profile" });
-  }
-};
 
 // // const JWT_SECRET_KEY = process.env.JWT_SECRET_KEY || 3000;
 

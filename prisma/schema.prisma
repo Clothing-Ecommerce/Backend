@@ -12,10 +12,11 @@ model User {
   username   String
   password   String
   email      String   @unique
-  address    String?
+  address    Address[]        @relation("UserAddresses")
   phone      String?
   gender     String?
   dateOfBirth DateTime?
+  avatar     String?
   role       Role     @default(Customer)
   status     Status   @default(Active)
   createdAt  DateTime @default(now())
@@ -25,6 +26,43 @@ model User {
   comments   Comment[]
   products   Product[] @relation("SellerProducts")
   suppliers  Supplier[]
+}
+
+model Address {
+  addressId   Int      @id @default(autoincrement())
+  userId      Int
+  user        User     @relation("UserAddresses", fields: [userId], references: [userId], onDelete: Cascade)
+
+  label       AddressLabel?      // Home / Work / Other
+  recipient   String             // Họ tên người nhận (thay fullName cho rõ nghĩa VN)
+  phone       String?            // SĐT người nhận
+  company     String?            // nếu là địa chỉ công ty
+  // Thành phần địa chỉ chi tiết kiểu VN
+  houseNumber String?            // Số nhà, ngõ, hẻm
+  street      String?            // Tên đường
+  wardCode    String?            // mã phường/xã (VD: 27134)
+  wardName    String?            // tên phường/xã
+  districtCode String?           // mã quận/huyện
+  districtName String?
+  provinceCode String?           // mã tỉnh/thành phố
+  provinceName String?
+  postalCode  String?            // mã bưu chính VN (5 số; tùy chọn)
+  building    String?            // toà nhà/khu/chung cư (nếu có)
+  block       String?            // block/khối (tuỳ chọn)
+  floor       String?            // tầng (tuỳ chọn)
+  room        String?            // căn/phòng (tuỳ chọn)
+  notes       String?            // ghi chú giao hàng (vd: "gọi trước khi giao")
+
+  // Tiện ích
+  country     String   @default("Vietnam")
+  geoLat      Float?   // tuỳ chọn: lưu toạ độ (delivery/định vị)
+  geoLng      Float?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([provinceCode, districtCode, wardCode])
 }
 
 model Supplier {
@@ -43,26 +81,6 @@ model Category {
   status      CategoryStatus
   products    Product[]
 }
-
-// model Product {
-//   productId  Int        @id @default(autoincrement())
-//   name       String
-//   description String?
-//   price      Float
-//   stock      Int
-//   imageUrl   String?
-//   categoryId Int
-//   sellerId   Int
-//   brandId    Int?
-//   createdAt  DateTime   @default(now())
-//   updatedAt  DateTime   @updatedAt
-//   category   Category   @relation(fields: [categoryId], references: [categoryId])
-//   seller     User       @relation("SellerProducts", fields: [sellerId], references: [userId])
-//   cartItems  CartItem[]
-//   orderItems  OrderItem[]
-//   comments    Comment[]
-//   brand      Brand?     @relation(fields: [brandId], references: [brandId])
-// }
 
 model Product {
   productId      Int       @id @default(autoincrement())
@@ -172,6 +190,12 @@ model Brand {
   name         String   @unique
   logoUrl     String?  
   products     Product[] 
+}
+
+enum AddressLabel {
+  Home
+  Work
+  Other
 }
 
 enum Role {

@@ -59,24 +59,3 @@ export const loginUser = async (email: string, password: string) => {
   };
 };
 
-export const getUserProfile = async (userId: number) => {
-  const user = await prisma.user.findUnique({
-    where: { userId: userId },
-    // Chọn các trường bạn muốn trả về cho profile
-    select: {
-      // user_id: true,
-      username: true,
-      email: true,
-      role: true,
-      status: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
-
-  if (!user) {
-    throw new Error("USER_NOT_FOUND");
-  }
-
-  return user;
-};
