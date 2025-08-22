@@ -10,6 +10,7 @@ import userRoutes from "./routes/userRoute";
 import productRoutes from "./routes/productRoute";
 import categoryRoutes from "./routes/categoryRoute";
 import brandRoutes from "./routes/brandRoute";
+import adminRoutes from "./routes/adminRoute";
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use(morgan("combined"));
 app.use(cookieParser());
 
 app.use("/auth", authRoutes);
+app.use("/admin", adminRoutes);
 app.use("/user", userRoutes);
 app.use("/products", productRoutes);
 app.use("/categories", categoryRoutes);

@@ -13,6 +13,10 @@ model User {
   password   String
   email      String   @unique
   address    Address[]        @relation("UserAddresses")
+  // Địa chỉ mặc định
+  defaultAddressId Int?       @unique   
+  defaultAddress   Address?   @relation("DefaultShippingAddress", fields: [defaultAddressId], references: [addressId])
+
   phone      String?
   gender     String?
   dateOfBirth DateTime?
@@ -32,6 +36,7 @@ model Address {
   addressId   Int      @id @default(autoincrement())
   userId      Int
   user        User     @relation("UserAddresses", fields: [userId], references: [userId], onDelete: Cascade)
+  defaultForUser   User?  @relation("DefaultShippingAddress")
 
   label       AddressLabel?      // Home / Work / Other
   recipient   String             // Họ tên người nhận (thay fullName cho rõ nghĩa VN)
@@ -63,6 +68,34 @@ model Address {
 
   @@index([userId])
   @@index([provinceCode, districtCode, wardCode])
+}
+
+model Province {
+  code      String    @id
+  name      String
+  type      String?
+  districts District[]
+}
+
+model District {
+  code         String   @id
+  name         String
+  type         String?
+  provinceCode String
+  province     Province  @relation(fields: [provinceCode], references: [code], onDelete: Restrict)
+  wards        Ward[]
+
+  @@index([provinceCode])
+}
+
+model Ward {
+  code         String   @id
+  name         String
+  type         String?
+  districtCode String
+  district     District @relation(fields: [districtCode], references: [code], onDelete: Restrict)
+
+  @@index([districtCode])
 }
 
 model Supplier {
