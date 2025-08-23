@@ -1,22 +1,20 @@
-import { Product } from ".prisma/client";
+import { Prisma } from "@prisma/client";
 import prisma from "../database/prismaClient";
 
-export async function getProducts(params: {
+interface GetProductsParams {
   search?: string;
-  category?: string;    // "all" | "<id>"
-  brand?: string;       // "all" | "<id>"
+  category?: string; // "all" | "<id>"
+  brand?: string; // "all" | "<id>"
   minPrice?: string;
   maxPrice?: string;
-  isNew?: string;       // "true" | undefined
-  isSale?: string;
-  isBestSeller?: string;
   sortBy?: string;
-}) {
-  const {
-    search, category, brand, minPrice, maxPrice, isNew, isSale, isBestSeller, sortBy,
-  } = params;
+}
 
-  const where: any = {};
+export async function getProducts(params: GetProductsParams) {
+  const { search, category, brand, minPrice, maxPrice, sortBy } = params;
+
+  // const where: any = {};
+  const where: Prisma.ProductWhereInput = {};
 
   if (search) {
     where.OR = [
@@ -37,32 +35,55 @@ export async function getProducts(params: {
 
   // price
   if (minPrice || maxPrice) {
-    where.price = {
-      ...(where.price || {}),
-      ...(minPrice ? { gte: parseInt(minPrice, 10) || undefined } : {}),
-      ...(maxPrice ? { lte: parseInt(maxPrice, 10) || undefined } : {}),
+    where.basePrice = {
+      ...(minPrice ? { gte: parseFloat(minPrice) } : {}),
+      ...(maxPrice ? { lte: parseFloat(maxPrice) } : {}),
     };
   }
 
-  if (isNew === "true") where.isNew = true;
-  if (isSale === "true") where.isSale = true;
-  if (isBestSeller === "true") where.isBestSeller = true;
-
   // sort
-  let orderBy: any = undefined;
+  let orderBy: Prisma.ProductOrderByWithRelationInput | undefined;
   switch (sortBy) {
-    case "newest":   orderBy = { createdAt: "desc" }; break;
-    case "priceAsc": orderBy = { price: "asc" }; break;
-    case "priceDesc":orderBy = { price: "desc" }; break;
-    case "rated":    orderBy = { rating: "desc" }; break;
-    default:         orderBy = undefined; // "featured" → để BE quyết (hoặc thêm logic)
+    case "newest":
+      orderBy = { createdAt: "desc" };
+      break;
+    case "priceAsc":
+      orderBy = { basePrice: "asc" };
+      break;
+    case "priceDesc":
+      orderBy = { basePrice: "desc" };
+      break;
+    default:
+      orderBy = undefined;
   }
+
+  // let orderBy: any = undefined;
+  // switch (sortBy) {
+  //   case "newest":
+  //     orderBy = { createdAt: "desc" };
+  //     break;
+  //   case "priceAsc":
+  //     orderBy = { price: "asc" };
+  //     break;
+  //   case "priceDesc":
+  //     orderBy = { price: "desc" };
+  //     break;
+  //   case "rated":
+  //     orderBy = { rating: "desc" };
+  //     break;
+  //   default:
+  //     orderBy = undefined; // "featured" → để BE quyết (hoặc thêm logic)
+  // }
 
   const [products, total] = await prisma.$transaction([
     prisma.product.findMany({
       where,
       orderBy,
-      include: { brand: true, category: true },
+      include: {
+        category: { select: { id: true, name: true } },
+        brand: { select: { id: true, name: true } },
+        images: true,
+      },
     }),
     prisma.product.count({ where }),
   ]);
@@ -249,12 +270,18 @@ export async function getProducts(params: {
 
 export const getProductById = async (id: number) => {
   const product = await prisma.product.findUnique({
-    where: { productId: id },
+    where: { id },
     include: {
-      category: { select: { name: true } },
-      brand: { select: { name: true } },
-      seller: { select: { username: true } }, // Optional
-      comments: true, // Bao gồm comments nếu cần
+      category: { select: { id: true, name: true } },
+      brand: { select: { id: true, name: true } },
+      images: true,
+      variants: {
+        include: {
+          size: true,
+          color: true,
+          prices: true,
+        },
+      },
     },
   });
 

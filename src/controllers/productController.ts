@@ -1,22 +1,22 @@
-import { Request, Response } from 'express';
+import { Request, Response } from "express";
 import { getProductById, getProducts } from "../services/productService";
 
 export const getProductsController = async (req: Request, res: Response) => {
   try {
-    const data = await getProducts(req.query);
+    const data = await getProducts(req.query as any);
     res.json(data);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch products' });
+    res.status(500).json({ error: "Failed to fetch products" });
   }
 };
 
 export const getProductByIdController = async (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id, 10);
     const data = await getProductById(id);
     res.json(data);
   } catch (error) {
-    res.status(404).json({ error: 'Product not found' });
+    res.status(404).json({ error: "Product not found" });
   }
 };
 

@@ -6,8 +6,11 @@ export async function getBrands() {
     orderBy: { name: "asc" },
   });
 
-  const allBrandsOption = { id: "all", name: "All Brands" };
-  return [allBrandsOption, ...brands];
+  // const allBrandsOption = { id: "all", name: "All Brands" };
+  // return [allBrandsOption, ...brands];
+
+  const mapped = brands.map((b) => ({ id: String(b.id), name: b.name }));
+  return [{ id: "all", name: "All Brands" }, ...mapped];
 }
 
 // export const getBrands = async () => {

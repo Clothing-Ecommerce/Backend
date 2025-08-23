@@ -12,7 +12,7 @@ export async function getCategories() {
     count: c._count.products,
   }));
 
-  const total = mapped.reduce((s, c) => s + c.count, 0);
+  const total = mapped.reduce((sum, c) => sum + c.count, 0);
   const all = { id: "all", name: "All Products", count: total };
 
   return [all, ...mapped];
