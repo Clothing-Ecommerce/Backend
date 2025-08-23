@@ -2,11 +2,11 @@ import prisma from "../database/prismaClient";
 
 export async function getBrands() {
   const brands = await prisma.brand.findMany({
-    select: { brandId: true, name: true },
+    select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
 
-  const allBrandsOption = { brandId: "all", name: "All Brands" };
+  const allBrandsOption = { id: "all", name: "All Brands" };
   return [allBrandsOption, ...brands];
 }
 

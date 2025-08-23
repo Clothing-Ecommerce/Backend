@@ -2,12 +2,12 @@ import prisma from "../database/prismaClient";
 
 export async function getCategories() {
   const categories = await prisma.category.findMany({
-    select: { categoryId: true, name: true, _count: { select: { products: true } } },
+    select: { id: true, name: true, _count: { select: { products: true } } },
     orderBy: { name: "asc" },
   });
 
   const mapped = categories.map((c) => ({
-    id: String(c.categoryId),
+    id: String(c.id),
     name: c.name,
     count: c._count.products,
   }));
