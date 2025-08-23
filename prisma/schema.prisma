@@ -7,64 +7,123 @@ generator client {
   provider = "prisma-client-js"
 }
 
-model User {
-  userId    Int      @id @default(autoincrement())
-  username   String
-  password   String
-  email      String   @unique
-  address    Address[]        @relation("UserAddresses")
-  // Địa chỉ mặc định
-  defaultAddressId Int?       @unique   
-  defaultAddress   Address?   @relation("DefaultShippingAddress", fields: [defaultAddressId], references: [addressId])
+// =================== Enums ===================
 
-  phone      String?
-  gender     String?
-  dateOfBirth DateTime?
-  avatar     String?
-  role       Role     @default(Customer)
-  status     Status   @default(Active)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  carts      Cart[]
-  orders     Order[]
-  comments   Comment[]
-  products   Product[] @relation("SellerProducts")
-  suppliers  Supplier[]
+enum Role {
+  CUSTOMER
+  STAFF
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum AddressLabel {
+  HOME
+  WORK
+  OTHER
+}
+
+enum OrderStatus {
+  PENDING       // tạo đơn, chờ xác nhận
+  CONFIRMED     // đã xác nhận
+  PAID          // đã thanh toán
+  FULFILLING    // đang chuẩn bị hàng
+  SHIPPED       // đã giao cho đơn vị vận chuyển
+  COMPLETED     // hoàn thành
+  CANCELLED     // hủy
+  REFUNDED      // hoàn tiền
+}
+
+enum PaymentMethod {
+  COD
+  BANK_CARD
+  BANK_TRANSFER
+  PAYPAL
+  VNPAY
+  MOMO
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  CANCELED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum PriceType {
+  LIST   // giá niêm yết (MSRP/compare-at)
+  SALE   // giá bán áp dụng
+}
+
+// =================== Users & Addresses ===================
+
+model User {
+  id           Int         @id @default(autoincrement())
+  email        String      @unique
+  username     String
+  passwordHash String
+  phone        String?
+  gender       String?
+  dateOfBirth  DateTime?
+  avatar       String?
+  role         Role        @default(CUSTOMER)
+  status       UserStatus  @default(ACTIVE)
+
+  addresses    Address[]
+  cart         Cart?
+  orders       Order[]
+  reviews      Review[]
+  wishlists    WishlistItem[]
+
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 }
 
 model Address {
-  addressId   Int      @id @default(autoincrement())
-  userId      Int
-  user        User     @relation("UserAddresses", fields: [userId], references: [userId], onDelete: Cascade)
-  defaultForUser   User?  @relation("DefaultShippingAddress")
+  id            Int           @id @default(autoincrement())
+  userId        Int
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  label       AddressLabel?      // Home / Work / Other
-  recipient   String             // Họ tên người nhận (thay fullName cho rõ nghĩa VN)
-  phone       String?            // SĐT người nhận
-  company     String?            // nếu là địa chỉ công ty
-  // Thành phần địa chỉ chi tiết kiểu VN
-  houseNumber String?            // Số nhà, ngõ, hẻm
-  street      String?            // Tên đường
-  wardCode    String?            // mã phường/xã (VD: 27134)
-  wardName    String?            // tên phường/xã
-  districtCode String?           // mã quận/huyện
-  districtName String?
-  provinceCode String?           // mã tỉnh/thành phố
-  provinceName String?
-  postalCode  String?            // mã bưu chính VN (5 số; tùy chọn)
-  building    String?            // toà nhà/khu/chung cư (nếu có)
-  block       String?            // block/khối (tuỳ chọn)
-  floor       String?            // tầng (tuỳ chọn)
-  room        String?            // căn/phòng (tuỳ chọn)
-  notes       String?            // ghi chú giao hàng (vd: "gọi trước khi giao")
+  isDefault     Boolean       @default(false)
+  label         AddressLabel?
+  recipient     String
+  phone         String?
+  company       String?
 
-  // Tiện ích
-  country     String   @default("Vietnam")
-  geoLat      Float?   // tuỳ chọn: lưu toạ độ (delivery/định vị)
-  geoLng      Float?
+  // VN-style address parts
+  houseNumber   String?
+  street        String?
+  wardCode      String?
+  wardName      String?
+  districtCode  String?
+  districtName  String?
+  provinceCode  String?
+  provinceName  String?
+  postalCode    String?
+  building      String?
+  block         String?
+  floor         String?
+  room          String?
+  notes         String?
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  country       String        @default("Vietnam")
+  geoLat        Float?
+  geoLng        Float?
+
+  orders        Order[]
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
   @@index([userId])
   @@index([provinceCode, districtCode, wardCode])
@@ -98,172 +157,303 @@ model Ward {
   @@index([districtCode])
 }
 
-model Supplier {
-  supplierId  Int      @id @default(autoincrement())
-  name        String
-  contactInfo String
-  address     String
-  sellerId    Int
-  seller      User     @relation(fields: [sellerId], references: [userId])
-}
+// =================== Catalog: Category / Brand / Product / Variant ===================
 
 model Category {
-  categoryId Int      @id @default(autoincrement())
-  name       String
+  id          Int        @id @default(autoincrement())
+  name        String
+  slug        String?     @unique
   description String?
-  status      CategoryStatus
+
   products    Product[]
-}
 
-model Product {
-  productId      Int       @id @default(autoincrement())
-  name           String
-  description    String?
-  price          Int
-  originalPrice  Int?
-  inStock        Boolean   @default(true)
-  stockCount     Int       @default(0)
-  rating         Float?    @default(0)
-  reviewsCount   Int?      @default(0)
-  isNew          Boolean   @default(false)
-  isSale         Boolean   @default(false)
-
-  // JSON fields
-  images          Json      // array of image URLs
-  colors          Json      // array of { name, value }
-  sizes           Json      // array of size strings
-  features        Json?     // array of features (string[])
-  specifications  Json?     // object: { Material, Fit, Origin, ... }
-
-  // Foreign keys
-  categoryId     Int
-  brandId        Int
-  sellerId       Int
-
-  // Timestamps
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  // Relations
-  category        Category  @relation(fields: [categoryId], references: [categoryId])
-  brand           Brand     @relation(fields: [brandId], references: [brandId])
-  seller          User      @relation("SellerProducts", fields: [sellerId], references: [userId])
-  comments        Comment[] // one-to-many: product can have many comments
-  cartItems       CartItem[]
-  orderItems      OrderItem[]
-}
-
-model Cart {
-  cartId    Int        @id @default(autoincrement())
-  userId    Int        @unique
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  user      User       @relation(fields: [userId], references: [userId])
-  cartItems CartItem[]
-}
-
-model CartItem {
-  cartItemId Int      @id @default(autoincrement())
-  cartId     Int
-  productId  Int
-  quantity   Int
-  addedAt    DateTime @default(now())
-  cart      Cart     @relation(fields: [cartId], references: [cartId])
-  product   Product  @relation(fields: [productId], references: [productId])
-}
-
-model Order {
-  orderId         Int          @id @default(autoincrement())
-  userId          Int
-  totalAmount     Float
-  shippingAddress String
-  shippingMethod  String
-  status          OrderStatus
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  user            User         @relation(fields: [userId], references: [userId])
-  orderItems      OrderItem[]
-  payment         Payment?
-}
-
-model OrderItem {
-  orderItemId Int     @id @default(autoincrement())
-  orderId      Int
-  productId    Int
-  quantity     Int
-  priceAtTime  Float
-  order       Order   @relation(fields: [orderId], references: [orderId])
-  product     Product @relation(fields: [productId], references: [productId])
-}
-
-model Payment {
-  paymentId     Int           @id @default(autoincrement())
-  orderId       Int           @unique
-  amount        Float
-  paymentMethod  PaymentMethod
-  paymentStatus  PaymentStatus
-  transactionId  String?
-  paidAt        DateTime      @default(now())
-  order          Order         @relation(fields: [orderId], references: [orderId])
-}
-
-model Comment {
-  commentId   Int      @id @default(autoincrement())
-  userId      Int
-  productId   Int
-  comment      String
-  rating       Int
-  commentDate DateTime @default(now())
-  user       User     @relation(fields: [userId], references: [userId])
-  product    Product  @relation(fields: [productId], references: [productId])
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 }
 
 model Brand {
-  brandId      Int      @id @default(autoincrement())
-  name         String   @unique
-  logoUrl     String?  
-  products     Product[] 
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  logoUrl   String?
+  products  Product[]
 }
 
-enum AddressLabel {
-  Home
-  Work
-  Other
+model Product {
+  id           Int             @id @default(autoincrement())
+  name         String
+  slug         String?          @unique
+  description  String?
+  basePrice    Decimal        
+
+  categoryId   Int
+  category     Category        @relation(fields: [categoryId], references: [id])
+
+  brandId      Int?
+  brand        Brand?          @relation(fields: [brandId], references: [id])
+
+  images       ProductImage[]
+  variants     ProductVariant[]
+  reviews      Review[]
+  wishlistedBy WishlistItem[]
+
+  // flexible metadata (optional)
+  features        Json?
+  specifications  Json?
+
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([categoryId])
+  @@index([name])
 }
 
-enum Role {
-  Customer
-  Seller
-  Admin
+model ProductImage {
+  id         Int      @id @default(autoincrement())
+  productId  Int
+  product    Product  @relation(fields: [productId], references: [id])
+
+  url        String
+  alt        String?
+  isPrimary  Boolean  @default(false)
+  sortOrder  Int      @default(0)
+
+  createdAt  DateTime @default(now())
 }
 
-enum Status {
-  Active
-  Inactive
+model Size {
+  id       Int              @id @default(autoincrement())
+  name     String           @unique
+  note     String?
+  variants ProductVariant[]
 }
 
-enum CategoryStatus {
-  Pending
-  Approved
-  Rejected
+model Color {
+  id       Int              @id @default(autoincrement())
+  name     String           @unique
+  hex      String?
+  variants ProductVariant[]
 }
 
-enum OrderStatus {
-  Pending
-  Processing
-  Shipped
-  Delivered
-  Cancelled
+model ProductVariant {
+  id         Int      @id @default(autoincrement())
+  productId  Int
+  product    Product  @relation(fields: [productId], references: [id])
+
+  sizeId     Int?
+  size       Size?    @relation(fields: [sizeId], references: [id])
+
+  colorId    Int?
+  color      Color?   @relation(fields: [colorId], references: [id])
+
+  sku        String?  @unique
+  // null => dùng Product.basePrice
+  price      Decimal?
+  stock      Int      @default(0)
+  isActive   Boolean  @default(true)
+
+  prices     Price[]
+  orderItems OrderItem[]
+  cartItems  CartItem[]
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([productId, sizeId, colorId])
+  @@index([productId])
 }
 
-enum PaymentMethod {
-  COD
-  CreditCard
-  DigitalWallet
+// =================== Pricing (history / analytics) ===================
+
+model Price {
+  id              Int            @id @default(autoincrement())
+  variantId       Int
+  variant         ProductVariant @relation(fields: [variantId], references: [id])
+
+  type            PriceType
+  amount          Decimal       
+  currency        String         @default("VND")
+
+  // validity window (null = open)
+  startAt         DateTime?
+  endAt           DateTime?
+
+  // analytics helpers
+  cost            Decimal?       // reference cost
+  isTaxInclusive  Boolean        @default(false)
+  taxRate         Decimal?       // e.g. 10.00 = 10%
+
+  note            String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([variantId, type, startAt, endAt])
 }
 
-enum PaymentStatus {
-  Pending
-  Completed
-  Failed
+// =================== Cart ===================
+
+model Cart {
+  id        Int        @id @default(autoincrement())
+  userId    Int        @unique
+  user      User       @relation(fields: [userId], references: [id])
+
+  items     CartItem[]
+
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model CartItem {
+  id        Int             @id @default(autoincrement())
+  cartId    Int
+  cart      Cart            @relation(fields: [cartId], references: [id])
+
+  variantId Int
+  variant   ProductVariant  @relation(fields: [variantId], references: [id])
+
+  quantity  Int             @default(1)
+  addedAt   DateTime        @default(now())
+
+  @@unique([cartId, variantId])
+  @@index([variantId])
+}
+
+// =================== Orders ===================
+
+model Order {
+  id            Int         @id @default(autoincrement())
+  userId        Int
+  user          User        @relation(fields: [userId], references: [id])
+
+  addressId     Int?
+  address       Address?    @relation(fields: [addressId], references: [id])
+
+  status        OrderStatus @default(PENDING)
+
+  subtotal      Decimal    
+  discount      Decimal     @default(0)
+  shippingFee   Decimal     @default(0)
+  total         Decimal    
+
+  notes         String?
+
+  items         OrderItem[]
+  payment       Payment?
+  coupons       OrderCoupon[]
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model OrderItem {
+  id           Int             @id @default(autoincrement())
+  orderId      Int
+  order        Order           @relation(fields: [orderId], references: [id])
+
+  variantId    Int
+  variant      ProductVariant  @relation(fields: [variantId], references: [id])
+
+  quantity     Int
+  // snapshot tại thời điểm bán
+  priceAtTime  Decimal        
+  costAtTime   Decimal?       
+  taxRate      Decimal?      
+  taxAmount    Decimal?       
+
+  createdAt    DateTime        @default(now())
+
+  @@index([orderId])
+  @@index([variantId])
+}
+
+model Payment {
+  id              Int            @id @default(autoincrement())
+  orderId         Int            @unique
+  order           Order          @relation(fields: [orderId], references: [id])
+
+  method          PaymentMethod
+  status          PaymentStatus  @default(PENDING)
+  amount          Decimal       
+  transactionCode String?
+  paidAt          DateTime?
+
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([status])
+}
+
+// =================== Reviews & Wishlist ===================
+
+model Review {
+  id          Int       @id @default(autoincrement())
+  productId   Int
+  product     Product   @relation(fields: [productId], references: [id])
+
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id])
+
+  rating      Int
+  title       String?
+  content     String?
+  isPublished Boolean   @default(true)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([productId, userId])
+  @@index([productId])
+  @@index([userId])
+}
+
+model WishlistItem {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@index([productId])
+}
+
+// =================== Discounts / Coupons ===================
+
+model Coupon {
+  id             Int      @id @default(autoincrement())
+  code           String   @unique
+  description    String?
+  type           DiscountType
+  value          Decimal  // % hoặc số tiền cố định
+  maxDiscount    Decimal?
+  minOrderValue  Decimal?
+
+  startsAt       DateTime?
+  endsAt         DateTime?
+
+  usageLimit     Int?
+  usageCount     Int      @default(0)
+  isActive       Boolean  @default(true)
+
+  orders         OrderCoupon[]
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model OrderCoupon {
+  orderId      Int
+  couponId     Int
+  // giá trị thực tế áp cho đơn (sau khi tính rule)
+  appliedValue Decimal
+
+  order   Order  @relation(fields: [orderId], references: [id])
+  coupon  Coupon @relation(fields: [couponId], references: [id])
+
+  @@id([orderId, couponId])
 }
