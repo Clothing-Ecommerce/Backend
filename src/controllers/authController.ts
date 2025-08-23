@@ -4,7 +4,6 @@ import {
   loginUser,
   registerUser,
 } from "../services/authService";
-import { AuthenticatedRequest } from "../middleware/authMiddleware";
 
 export const register = async (req: Request, res: Response) => {
   try {
@@ -14,15 +13,12 @@ export const register = async (req: Request, res: Response) => {
     }
 
     const { username, email, password } = req.body;
+    const { token, user } = await registerUser(username, email, password);
 
-    const user = await registerUser(username, email, password);
     return res.status(201).json({
-      message: "Registration successful. Please log in.",
-      user: {
-        username: user.username,
-        email: user.email,
-        role: user.role,
-      },
+      message: "Registration successful",
+      token,
+      user,
     });
     // return res
     //   .cookie("token", token, {
