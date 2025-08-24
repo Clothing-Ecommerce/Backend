@@ -10,19 +10,32 @@ import {
   updateUserProfile,
 } from "../services/userService";
 
+const getUserId = (req: AuthenticatedRequest, res: Response): number | null => {
+  const userId = req.user?.userId;
+  if (typeof userId !== "number") {
+    res
+      .status(401)
+      .json({ message: "Người dùng chưa xác thực hoặc thông tin không đầy đủ" });
+    return null;
+  }
+  return userId;
+};
+
 export const getProfileController = async (
   req: AuthenticatedRequest,
   res: Response
 ) => {
   try {
-    // Đảm bảo rằng req.user tồn tại và có userId
-    if (!req.user || typeof req.user.userId === "undefined") {
-      return res.status(401).json({
-        message: "Người dùng chưa xác thực hoặc thông tin không đầy đủ",
-      });
-    }
+    // // Đảm bảo rằng req.user tồn tại và có userId
+    // if (!req.user || typeof req.user.userId === "undefined") {
+    //   return res.status(401).json({
+    //     message: "Người dùng chưa xác thực hoặc thông tin không đầy đủ",
+    //   });
+    // }
+    const userId = getUserId(req, res);
+    if (!userId) return;
 
-    const userId = req.user.userId;
+    // const userId = req.user.userId;
     const userProfile = await getUserProfile(userId);
     return res.status(200).json(userProfile);
   } catch (err) {
@@ -41,13 +54,15 @@ export const updateProfileController = async (
   res: Response
 ) => {
   try {
-    if (!req.user || typeof req.user.userId === "undefined") {
-      return res
-        .status(401)
-        .json({
-          message: "Người dùng chưa xác thực hoặc thông tin không đầy đủ",
-        });
-    }
+    // if (!req.user || typeof req.user.userId === "undefined") {
+    //   return res
+    //     .status(401)
+    //     .json({
+    //       message: "Người dùng chưa xác thực hoặc thông tin không đầy đủ",
+    //     });
+    // }
+    const userId = getUserId(req, res);
+    if (!userId) return;
 
     // Chỉ lấy các field cho phép từ body
     const {
@@ -58,7 +73,7 @@ export const updateProfileController = async (
       dateOfBirth, // "yyyy-mm-dd" hoặc null để xoá
     } = req.body || {};
 
-    const updated = await updateUserProfile(req.user.userId, {
+    const updated = await updateUserProfile(userId, {
       username,
       email,
       phone: typeof phone === "string" || phone === null ? phone : undefined,
@@ -94,15 +109,17 @@ export const getAddressesController = async (
   res: Response
 ) => {
   try {
-    if (!req.user || typeof req.user.userId === "undefined") {
-      return res
-        .status(401)
-        .json({
-          message: "Người dùng chưa xác thực hoặc thông tin không đầy đủ",
-        });
-    }
+    // if (!req.user || typeof req.user.userId === "undefined") {
+    //   return res
+    //     .status(401)
+    //     .json({
+    //       message: "Người dùng chưa xác thực hoặc thông tin không đầy đủ",
+    //     });
+    // }
+    const userId = getUserId(req, res);
+    if (!userId) return;
 
-    const data = await getUserAddresses(req.user.userId);
+    const data = await getUserAddresses(userId);
     return res.status(200).json(data);
   } catch (err) {
     console.error("Error fetching addresses:", err);
@@ -120,13 +137,15 @@ export const createAddressController = async (
   res: Response
 ) => {
   try {
-    if (!req.user || typeof req.user.userId === "undefined") {
-      return res
-        .status(401)
-        .json({ message: "Người dùng chưa xác thực hoặc thông tin không đầy đủ" });
-    }
+    // if (!req.user || typeof req.user.userId === "undefined") {
+    //   return res
+    //     .status(401)
+    //     .json({ message: "Người dùng chưa xác thực hoặc thông tin không đầy đủ" });
+    // }
+    const userId = getUserId(req, res);
+    if (!userId) return;
 
-    const userId = req.user.userId;
+    // const userId = req.user.userId;
     const payload = req.body;
 
     const data = await createUserAddress(userId, payload);
@@ -150,18 +169,19 @@ export const updateAddressController = async (
   res: Response
 ) => {
   try {
-    if (!req.user || typeof req.user.userId === "undefined") {
-      return res.status(401).json({ message: "Người dùng chưa xác thực hoặc thông tin không đầy đủ" });
-    }
+    // if (!req.user || typeof req.user.userId === "undefined") {
+    //   return res.status(401).json({ message: "Người dùng chưa xác thực hoặc thông tin không đầy đủ" });
+    // }
+    const userId = getUserId(req, res);
+    if (!userId) return;
 
-    const userId = req.user.userId;
+    // const userId = req.user.userId;
     const addressId = Number(req.params.addressId);
     if (!Number.isInteger(addressId)) {
       return res.status(400).json({ message: "addressId không hợp lệ" });
     }
 
-    // nhận payload partial
-    const payload = req.body; // đã giới hạn ở service
+    const payload = req.body;
     const data = await updateUserAddress(userId, addressId, payload);
 
     return res.status(200).json(data);
@@ -181,13 +201,15 @@ export const deleteAddressController = async (
   res: Response
 ) => {
   try {
-    if (!req.user || typeof req.user.userId === "undefined") {
-      return res
-        .status(401)
-        .json({ message: "Người dùng chưa xác thực hoặc thông tin không đầy đủ" });
-    }
+    // if (!req.user || typeof req.user.userId === "undefined") {
+    //   return res
+    //     .status(401)
+    //     .json({ message: "Người dùng chưa xác thực hoặc thông tin không đầy đủ" });
+    // }
+    const userId = getUserId(req, res);
+    if (!userId) return;
 
-    const userId = req.user.userId;
+    // const userId = req.user.userId;
     const addressId = Number(req.params.addressId);
     if (!Number.isInteger(addressId)) {
       return res.status(400).json({ message: "addressId không hợp lệ" });
@@ -222,13 +244,15 @@ export const setDefaultAddressController = async (
   res: Response
 ) => {
   try {
-    if (!req.user || typeof req.user.userId === "undefined") {
-      return res
-        .status(401)
-        .json({ message: "Người dùng chưa xác thực hoặc thông tin không đầy đủ" });
-    }
+    // if (!req.user || typeof req.user.userId === "undefined") {
+    //   return res
+    //     .status(401)
+    //     .json({ message: "Người dùng chưa xác thực hoặc thông tin không đầy đủ" });
+    // }
+    const userId = getUserId(req, res);
+    if (!userId) return;
 
-    const userId = req.user.userId;
+    // const userId = req.user.userId;
     const addressId = Number(req.params.addressId);
     if (!Number.isInteger(addressId)) {
       return res.status(400).json({ message: "addressId không hợp lệ" });

@@ -1,11 +1,22 @@
 import { Address } from ".prisma/client";
 import prisma from "../database/prismaClient";
 
-export const getUserProfile = async (userId: number) => {
+export interface UserProfile {
+  userId: number;
+  username: string;
+  email: string;
+  phone: string | null;
+  dateOfBirth: Date | null;
+  gender: string | null;
+  avatar: string | null;
+  createdAt: Date;
+}
+
+export const getUserProfile = async (userId: number): Promise<UserProfile> => {
   const user = await prisma.user.findUnique({
-    where: { userId: userId },
+    where: { id: userId },
     select: {
-      userId: true,
+      id: true,
       username: true,
       email: true,
       phone: true,
@@ -20,17 +31,16 @@ export const getUserProfile = async (userId: number) => {
     throw new Error("USER_NOT_FOUND");
   }
 
-  return user;
-  // return {
-  //   userId: user.userId,
-  //   username: user.username,
-  //   email: user.email,
-  //   phone: user.phone ?? null,
-  //   dateOfBirth: formatDateToDDMMYYYY(user.dateOfBirth),
-  //   gender: user.gender ?? null,
-  //   avatar: (user as any).avatar ?? null,
-  //   createdAt: formatDateToDDMMYYYY(user.createdAt),
-  // };
+  return {
+    userId: user.id,
+    username: user.username,
+    email: user.email,
+    phone: user.phone ?? null,
+    dateOfBirth: user.dateOfBirth ?? null,
+    gender: user.gender ?? null,
+    avatar: user.avatar ?? null,
+    createdAt: user.createdAt,
+  };
 };
 
 // function formatDateToDDMMYYYY(date: Date | null): string | null {
@@ -41,48 +51,59 @@ export const getUserProfile = async (userId: number) => {
 //   return `${d}/${m}/${y}`;
 // }
 
-type UpdateProfilePayload = {
+export interface UpdateProfilePayload {
   username?: string;
   email?: string;
   phone?: string | null;
   gender?: string | null; // "male" | "female" | "other" | "prefer-not-to-say"
   dateOfBirth?: string | null; // "yyyy-mm-dd" | null
-};
+}
 
 export const updateUserProfile = async (
   userId: number,
   payload: UpdateProfilePayload
-) => {
+): Promise<UserProfile> => {
   const { username, email, phone, gender, dateOfBirth } = payload;
 
   // Check email trùng (nếu có cập nhật)
   if (email) {
     const existed = await prisma.user.findFirst({
-      where: { email, NOT: { userId } },
-      select: { userId: true },
+      where: { email, NOT: { id: userId } },
+      select: { id: true },
     });
     if (existed) throw new Error("EMAIL_TAKEN");
   }
 
-  // Build data update
-  const data: any = {};
+  // // Build data update
+  // const data: any = {};
 
-  if (typeof username !== "undefined") data.username = username;
-  if (typeof email !== "undefined") data.email = email;
-  if (typeof phone !== "undefined") data.phone = phone; // cho phép null
-  if (typeof gender !== "undefined") data.gender = gender; // cho phép null
+  // if (typeof username !== "undefined") data.username = username;
+  // if (typeof email !== "undefined") data.email = email;
+  // if (typeof phone !== "undefined") data.phone = phone; // cho phép null
+  // if (typeof gender !== "undefined") data.gender = gender; // cho phép null
 
-  if (typeof dateOfBirth !== "undefined") {
+  // if (typeof dateOfBirth !== "undefined") {
+  //   data.dateOfBirth = dateOfBirth
+  //     ? new Date(dateOfBirth + "T00:00:00Z") // "yyyy-mm-dd" -> Date
+  //     : null; // clear DOB
+  // }
+
+  const data: Record<string, any> = {};
+  if (username !== undefined) data.username = username;
+  if (email !== undefined) data.email = email;
+  if (phone !== undefined) data.phone = phone;
+  if (gender !== undefined) data.gender = gender;
+  if (dateOfBirth !== undefined) {
     data.dateOfBirth = dateOfBirth
-      ? new Date(dateOfBirth + "T00:00:00Z") // "yyyy-mm-dd" -> Date
-      : null; // clear DOB
+      ? new Date(`${dateOfBirth}T00:00:00Z`)
+      : null;
   }
 
   const updated = await prisma.user.update({
-    where: { userId },
+    where: { id: userId },
     data,
     select: {
-      userId: true,
+      id: true,
       username: true,
       email: true,
       phone: true,
@@ -93,17 +114,17 @@ export const updateUserProfile = async (
     },
   });
 
-  return updated;
-  // return {
-  //   userId: updated.userId,
-  //   username: updated.username,
-  //   email: updated.email,
-  //   phone: updated.phone ?? null,
-  //   dateOfBirth: formatDateToDDMMYYYY(updated.dateOfBirth),
-  //   gender: updated.gender ?? null,
-  //   avatar: (updated as any).avatar ?? null,
-  //   createdAt: formatDateToDDMMYYYY(updated.createdAt),
-  // };
+  // return updated;
+  return {
+    userId: updated.id,
+    username: updated.username,
+    email: updated.email,
+    phone: updated.phone ?? null,
+    dateOfBirth: updated.dateOfBirth ?? null,
+    gender: updated.gender ?? null,
+    avatar: updated.avatar ?? null,
+    createdAt: updated.createdAt,
+  };
 };
 
 // export const getUserAddresses = async (userId: number): Promise<Address[]> => {
@@ -178,54 +199,101 @@ export const updateUserProfile = async (
 //   }));
 // };
 
-export const getUserAddresses = async (userId: number) => {
-  // lấy user để biết defaultAddressId
-  const user = await prisma.user.findUnique({
-    where: { userId },
-    select: { defaultAddressId: true },
-  });
-  if (!user) throw new Error("USER_NOT_FOUND");
+export interface AddressDto {
+  addressId: number;
+  label: string | null;
+  recipient: string;
+  phone: string | null;
+  company: string | null;
+  houseNumber: string | null;
+  street: string | null;
+  wardCode: string | null;
+  wardName: string | null;
+  districtCode: string | null;
+  districtName: string | null;
+  provinceCode: string | null;
+  provinceName: string | null;
+  postalCode: string | null;
+  building: string | null;
+  block: string | null;
+  floor: string | null;
+  room: string | null;
+  notes: string | null;
+  country: string;
+  isDefault: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-  const addressList = await prisma.address.findMany({
+const mapAddress = (a: any): AddressDto => ({
+  addressId: a.id,
+  label: a.label ?? null,
+  recipient: a.recipient,
+  phone: a.phone ?? null,
+  company: a.company ?? null,
+  houseNumber: a.houseNumber ?? null,
+  street: a.street ?? null,
+  wardCode: a.wardCode ?? null,
+  wardName: a.wardName ?? null,
+  districtCode: a.districtCode ?? null,
+  districtName: a.districtName ?? null,
+  provinceCode: a.provinceCode ?? null,
+  provinceName: a.provinceName ?? null,
+  postalCode: a.postalCode ?? null,
+  building: a.building ?? null,
+  block: a.block ?? null,
+  floor: a.floor ?? null,
+  room: a.room ?? null,
+  notes: a.notes ?? null,
+  country: a.country,
+  isDefault: a.isDefault,
+  createdAt: a.createdAt,
+  updatedAt: a.updatedAt,
+});
+
+export const getUserAddresses = async (
+  userId: number
+): Promise<AddressDto[]> => {
+  const addresses = await prisma.address.findMany({
     where: { userId },
     orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
   });
-  // Chuẩn hoá về non-null theo hợp đồng FE (label/recipient)
-  return addressList.map((a) => ({
-    addressId: a.addressId,
-    label: (a.label as any) ?? "Other",
-    recipient: a.recipient ?? "",
-    phone: a.phone ?? null,
-    company: a.company ?? null,
-    houseNumber: a.houseNumber ?? null,
-    street: a.street ?? null,
-    wardCode: a.wardCode ?? null,
-    wardName: a.wardName ?? null,
-    districtCode: a.districtCode ?? null,
-    districtName: a.districtName ?? null,
-    provinceCode: a.provinceCode ?? null,
-    provinceName: a.provinceName ?? null,
-    postalCode: a.postalCode ?? null,
-    building: a.building ?? null,
-    block: a.block ?? null,
-    floor: a.floor ?? null,
-    room: a.room ?? null,
-    notes: a.notes ?? null,
-    country: a.country ?? "Vietnam",
-    isDefault: a.addressId === user.defaultAddressId,
-    createdAt: a.createdAt,
-    updatedAt: a.updatedAt,
-  }));
+  // // Chuẩn hoá về non-null theo hợp đồng FE (label/recipient)
+  // return addressList.map((a) => ({
+  //   addressId: a.addressId,
+  //   label: (a.label as any) ?? "Other",
+  //   recipient: a.recipient ?? "",
+  //   phone: a.phone ?? null,
+  //   company: a.company ?? null,
+  //   houseNumber: a.houseNumber ?? null,
+  //   street: a.street ?? null,
+  //   wardCode: a.wardCode ?? null,
+  //   wardName: a.wardName ?? null,
+  //   districtCode: a.districtCode ?? null,
+  //   districtName: a.districtName ?? null,
+  //   provinceCode: a.provinceCode ?? null,
+  //   provinceName: a.provinceName ?? null,
+  //   postalCode: a.postalCode ?? null,
+  //   building: a.building ?? null,
+  //   block: a.block ?? null,
+  //   floor: a.floor ?? null,
+  //   room: a.room ?? null,
+  //   notes: a.notes ?? null,
+  //   country: a.country ?? "Vietnam",
+  //   isDefault: a.addressId === user.defaultAddressId,
+  //   createdAt: a.createdAt,
+  //   updatedAt: a.updatedAt,
+  // }));
+
+  return addresses.map(mapAddress);
 };
 
-export type CreateAddressPayload = {
-  // meta
-  label?: "Home" | "Work" | "Other" | null;
-  recipient: string; // bắt buộc
+export interface CreateAddressPayload {
+  label?: "HOME" | "WORK" | "OTHER" | null;
+  recipient: string;
   phone?: string | null;
   company?: string | null;
 
-  // địa chỉ VN
   houseNumber?: string | null;
   street?: string | null;
   wardCode?: string | null;
@@ -246,20 +314,18 @@ export type CreateAddressPayload = {
 
   // tuỳ chọn
   setDefault?: boolean;
-};
+}
 
 export const createUserAddress = async (
   userId: number,
   payload: CreateAddressPayload
-) => {
-  // 1) kiểm tra user tồn tại + đang có default hay chưa
+): Promise<AddressDto> => {
   const user = await prisma.user.findUnique({
-    where: { userId },
-    select: { userId: true, defaultAddressId: true },
+    where: { id: userId },
+    select: { id: true },
   });
   if (!user) throw new Error("USER_NOT_FOUND");
 
-  // 2) validate tối thiểu
   if (!payload.recipient || payload.recipient.trim() === "") {
     throw new Error("RECIPIENT_REQUIRED");
   }
@@ -287,8 +353,19 @@ export const createUserAddress = async (
     setDefault,
   } = payload;
 
-  // 3) tạo địa chỉ + (tuỳ chọn) đặt mặc định trong transaction
   const result = await prisma.$transaction(async (tx) => {
+    if (setDefault) {
+      await tx.address.updateMany({
+        where: { userId },
+        data: { isDefault: false },
+      });
+    }
+
+    const hasDefault = await tx.address.findFirst({
+      where: { userId, isDefault: true },
+      select: { id: true },
+    });
+
     const created = await tx.address.create({
       data: {
         userId,
@@ -311,60 +388,23 @@ export const createUserAddress = async (
         room: room ?? null,
         notes: notes ?? null,
         country: country ?? "Vietnam",
-      },
-      select: {
-        addressId: true,
-        label: true,
-        recipient: true,
-        phone: true,
-        company: true,
-        houseNumber: true,
-        street: true,
-        wardCode: true,
-        wardName: true,
-        districtCode: true,
-        districtName: true,
-        provinceCode: true,
-        provinceName: true,
-        postalCode: true,
-        building: true,
-        block: true,
-        floor: true,
-        room: true,
-        notes: true,
-        country: true,
-        createdAt: true,
-        updatedAt: true,
+        // isDefault: setDefault ? true : !hasDefault, // nếu setDefault = true thì true, nếu false mà chưa có default thì cũng true
+        isDefault: setDefault || !hasDefault,
       },
     });
 
-    // Nếu setDefault = true HOẶC user chưa có default → gán mặc định
-    const shouldSetDefault = !!setDefault || !user.defaultAddressId;
-    if (shouldSetDefault) {
-      await tx.user.update({
-        where: { userId },
-        data: { defaultAddressId: created.addressId },
-      });
-      return { created, isDefault: true };
-    }
-
-    return { created, isDefault: false };
+    return created;
   });
 
-  return {
-    ...result.created,
-    isDefault: result.isDefault,
-  };
+  return mapAddress(result);
 };
 
-export type UpdateAddressPayload = {
-  // meta
-  label?: "Home" | "Work" | "Other" | null;
+export interface UpdateAddressPayload {
+  label?: "HOME" | "WORK" | "OTHER" | null;
   recipient?: string | null;
   phone?: string | null;
   company?: string | null;
 
-  // địa chỉ VN
   houseNumber?: string | null;
   street?: string | null;
   wardCode?: string | null;
@@ -385,23 +425,22 @@ export type UpdateAddressPayload = {
 
   // điều khiển
   setDefault?: boolean;
-};
+}
 
 export const updateUserAddress = async (
   userId: number,
   addressId: number,
   payload: UpdateAddressPayload
-) => {
-  // 1) kiểm tra quyền sở hữu
-  const address = await prisma.address.findUnique({
-    where: { addressId },
-    select: { addressId: true, userId: true },
+): Promise<AddressDto> => {
+  const existing = await prisma.address.findUnique({
+    where: { id: addressId },
+    select: { id: true, userId: true },
   });
-  if (!address || address.userId !== userId) {
+
+  if (!existing || existing.userId !== userId) {
     throw new Error("ADDRESS_NOT_FOUND_OR_FORBIDDEN");
   }
 
-  // 2) build dữ liệu update (chỉ nhận field cho phép)
   const {
     label,
     recipient,
@@ -424,31 +463,6 @@ export const updateUserAddress = async (
     country,
     setDefault,
   } = payload;
-
-  // const data: any = {
-  //   ...(label !== undefined && { label }),
-  //   ...(recipient !== undefined && { recipient }),
-  //   ...(phone !== undefined && { phone }),
-  //   ...(company !== undefined && { company }),
-
-  //   ...(houseNumber !== undefined && { houseNumber }),
-  //   ...(street !== undefined && { street }),
-  //   ...(wardCode !== undefined && { wardCode }),
-  //   ...(wardName !== undefined && { wardName }),
-  //   ...(districtCode !== undefined && { districtCode }),
-  //   ...(districtName !== undefined && { districtName }),
-  //   ...(provinceCode !== undefined && { provinceCode }),
-  //   ...(provinceName !== undefined && { provinceName }),
-  //   ...(postalCode !== undefined && { postalCode }),
-
-  //   ...(building !== undefined && { building }),
-  //   ...(block !== undefined && { block }),
-  //   ...(floor !== undefined && { floor }),
-  //   ...(room !== undefined && { room }),
-  //   ...(notes !== undefined && { notes }),
-
-  //   ...(country !== undefined && { country: country ?? "Vietnam" }),
-  // };
 
   // Chuẩn hoá chuỗi: trim để tránh rác dữ liệu
   const trimOr = (v?: string | null) =>
@@ -480,154 +494,112 @@ export const updateUserAddress = async (
     ...(country !== undefined ? { country: country ?? "Vietnam" } : {}),
   };
 
-  // 3) cập nhật address
-  const updated = await prisma.address.update({
-    where: { addressId },
-    data,
-    select: {
-      addressId: true,
-      label: true,
-      recipient: true,
-      phone: true,
-      company: true,
-      houseNumber: true,
-      street: true,
-      wardCode: true,
-      wardName: true,
-      districtCode: true,
-      districtName: true,
-      provinceCode: true,
-      provinceName: true,
-      postalCode: true,
-      building: true,
-      block: true,
-      floor: true,
-      room: true,
-      notes: true,
-      country: true,
-    },
+  const updated = await prisma.$transaction(async (tx) => {
+    if (setDefault) {
+      await tx.address.updateMany({
+        where: { userId },
+        data: { isDefault: false },
+      });
+      data.isDefault = true;
+    }
+    return tx.address.update({ where: { id: addressId }, data });
   });
 
-  // 4) set default nếu yêu cầu
-  if (setDefault) {
-    await prisma.user.update({
-      where: { userId },
-      data: { defaultAddressId: addressId },
-    });
-  }
-
-  // 5) gắn isDefault để FE hiển thị badge
-  const user = await prisma.user.findUnique({
-    where: { userId },
-    select: { defaultAddressId: true },
-  });
-
-  return {
-    ...updated,
-    isDefault: user?.defaultAddressId === addressId,
-  };
+  return mapAddress(updated);
 };
 
-export type DeleteAddressResult = {
+export interface DeleteAddressResult {
   deletedAddressId: number;
   wasDefault: boolean;
   newDefaultAddressId: number | null;
-};
+}
 
 export const deleteUserAddress = async (
   userId: number,
   addressId: number
 ): Promise<DeleteAddressResult> => {
-  // Lấy user + address 1 lần để kiểm tra quyền và trạng thái default
-  const [user, address] = await Promise.all([
-    prisma.user.findUnique({
-      where: { userId },
-      select: { defaultAddressId: true },
-    }),
-    prisma.address.findUnique({
-      where: { addressId },
-      select: { addressId: true, userId: true },
-    }),
-  ]);
+  const address = await prisma.address.findUnique({
+    where: { id: addressId },
+    select: { id: true, userId: true, isDefault: true },
+  });
 
   if (!address || address.userId !== userId) {
     throw new Error("ADDRESS_NOT_FOUND_OR_FORBIDDEN");
   }
-  if (!user) {
-    throw new Error("USER_NOT_FOUND");
-  }
 
-  const isDefault = user.defaultAddressId === addressId;
-
-  // Transaction:
-  //  - Xoá địa chỉ
-  //  - Nếu là default, chọn 1 địa chỉ khác làm default (nếu còn)
   const result = await prisma.$transaction(async (tx) => {
-    // xoá address
-    await tx.address.delete({ where: { addressId } });
+    await tx.address.delete({ where: { id: addressId } });
 
-    let newDefault: { addressId: number } | null = null;
-
-    if (isDefault) {
-      // Chọn 1 địa chỉ khác của user (ưu tiên updatedAt mới nhất)
+    let newDefault: { id: number } | null = null;
+    if (address.isDefault) {
       newDefault = await tx.address.findFirst({
-        where: { userId /* loại trừ id vừa xoá */ },
+        where: { userId },
         orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
-        select: { addressId: true },
+        select: { id: true },
       });
 
-      await tx.user.update({
-        where: { userId },
-        data: { defaultAddressId: newDefault ? newDefault.addressId : null },
-      });
+      if (newDefault) {
+        await tx.address.update({
+          where: { id: newDefault.id },
+          data: { isDefault: true },
+        });
+      }
     }
 
     return {
       deletedAddressId: addressId,
-      wasDefault: isDefault,
-      newDefaultAddressId: newDefault ? newDefault.addressId : null,
+      wasDefault: address.isDefault,
+      newDefaultAddressId: newDefault ? newDefault.id : null,
     };
   });
 
   return result;
 };
 
-export const setDefaultAddress = async (userId: number, addressId: number) => {
+export const setDefaultAddress = async (
+  userId: number,
+  addressId: number
+): Promise<{
+  previousDefaultAddressId: number | null;
+  newDefaultAddressId: number;
+  changed: boolean;
+}> => {
   // 1) Kiểm tra address có tồn tại và thuộc về user không
   const address = await prisma.address.findUnique({
-    where: { addressId },
-    select: { addressId: true, userId: true },
+    where: { id: addressId },
+    select: { id: true, userId: true, isDefault: true },
   });
   if (!address || address.userId !== userId) {
     throw new Error("ADDRESS_NOT_FOUND_OR_FORBIDDEN");
   }
 
-  // 2) Lấy default hiện tại (để trả về cho FE nếu cần)
-  const user = await prisma.user.findUnique({
-    where: { userId },
-    select: { defaultAddressId: true },
-  });
-  if (!user) throw new Error("USER_NOT_FOUND");
-
-  // 3) Idempotent: nếu đã là default thì không cần update
-  if (user.defaultAddressId === addressId) {
+  if (address.isDefault) {
     return {
-      previousDefaultAddressId: user.defaultAddressId,
+      previousDefaultAddressId: addressId,
       newDefaultAddressId: addressId,
       changed: false,
     };
   }
 
-  // 4) Cập nhật defaultAddressId cho user
-  const updated = await prisma.user.update({
-    where: { userId },
-    data: { defaultAddressId: addressId },
-    select: { defaultAddressId: true },
+  const previous = await prisma.address.findFirst({
+    where: { userId, isDefault: true },
+    select: { id: true },
+  });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.address.updateMany({
+      where: { userId },
+      data: { isDefault: false },
+    });
+    await tx.address.update({
+      where: { id: addressId },
+      data: { isDefault: true },
+    });
   });
 
   return {
-    previousDefaultAddressId: user.defaultAddressId ?? null,
-    newDefaultAddressId: updated.defaultAddressId!,
+    previousDefaultAddressId: previous ? previous.id : null,
+    newDefaultAddressId: addressId,
     changed: true,
   };
 };
