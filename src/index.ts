@@ -11,6 +11,7 @@ import productRoutes from "./routes/productRoute";
 import categoryRoutes from "./routes/categoryRoute";
 import brandRoutes from "./routes/brandRoute";
 import adminRoutes from "./routes/adminRoute";
+import cartRoutes from "./routes/cartRoute";
 
 const app = express();
 
@@ -32,6 +33,7 @@ app.use("/user", userRoutes);
 app.use("/products", productRoutes);
 app.use("/categories", categoryRoutes);
 app.use("/brands", brandRoutes);
+app.use("/cart", cartRoutes);
 
 const PORT = process.env.PORT || 3000;
 
