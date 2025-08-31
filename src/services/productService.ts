@@ -40,6 +40,17 @@ export interface ProductCardDTO {
   compareAtPrice?: number | null;
 }
 
+export interface VariantOptionDTO {
+  id: number;
+  colorId: number | null;
+  colorName: string | null;
+  colorHex: string | null;
+  sizeId: number | null;
+  sizeName: string | null;
+  stock: number;
+  isActive: boolean;
+};
+
 /**
  * Helper: is a Price (history) record active at a given time
  */
@@ -288,5 +299,35 @@ export async function getRelatedProducts(categoryId: number, currentProductId: n
     category: p.category,
     brand: p.brand,
     image: p.images[0] ? { id: p.images[0].id, url: p.images[0].url, alt: p.images[0].alt ?? null } : null,
+  }));
+}
+
+export async function getProductVariants(productId: number, inStockOnly = false): Promise<VariantOptionDTO[]> {
+  // Optionally verify product exists; nếu muốn 404 khi product không tồn tại:
+  // const product = await prisma.product.findUnique({ where: { id: productId }, select: { id: true }});
+  // if (!product) return []; // hoặc throw 404 ở controller
+
+  const variants = await prisma.productVariant.findMany({
+    where: {
+      productId,
+      isActive: true,                 // chỉ lấy biến thể đang hoạt động
+      ...(inStockOnly ? { stock: { gt: 0 } } : {}), // tuỳ chọn chỉ lấy còn hàng
+    },
+    include: {
+      color: { select: { id: true, name: true, hex: true } },
+      size:  { select: { id: true, name: true } },
+    },
+    orderBy: [{ id: "asc" }], // ổn định thứ tự
+  });
+
+  return variants.map(v => ({
+    id: v.id,
+    colorId: v.color?.id ?? null,
+    colorName: v.color?.name ?? null,
+    colorHex: v.color?.hex ?? null,
+    sizeId: v.size?.id ?? null,
+    sizeName: v.size?.name ?? null,
+    stock: v.stock,
+    isActive: v.isActive,
   }));
 }

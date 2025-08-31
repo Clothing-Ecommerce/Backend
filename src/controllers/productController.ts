@@ -4,6 +4,7 @@ import {
   getProducts,
   getProductById,
   getRelatedProducts,
+  getProductVariants,
   type GetProductsParams,
   type SortBy,
 } from "../services/productService";
@@ -111,6 +112,24 @@ export const getRelatedProductsController = async (req: Request, res: Response) 
     return res.json({ products });
   } catch (err: any) {
     console.error("getRelatedProductsController error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const getProductVariantsController = async (req: Request, res: Response) => {
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: "Invalid product id" });
+    }
+    const inStockOnly = parseBool(String(req.query.inStockOnly ?? "false"), false);
+
+    const variants = await getProductVariants(id, inStockOnly);
+    // Nếu muốn 404 khi product không tồn tại và variants=[], bạn có thể kiểm tra trước ở service
+    // return res.json({ variants }); // return object
+    return res.json(variants); // return array
+  } catch (err: any) {
+    console.error("getProductVariantsController error:", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 };
