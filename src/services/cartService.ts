@@ -658,3 +658,14 @@ export async function computeCart(
   };
   return appliedPromo ? { items, summary, appliedPromo } : { items, summary };
 }
+
+export async function getCartCounts(userId: number) {
+  const itemCount = await prisma.cartItem.count({
+    where: { cart: { userId } },
+  });
+  const agg = await prisma.cartItem.aggregate({
+    where: { cart: { userId } },
+    _sum: { quantity: true },
+  });
+  return { itemCount, quantity: agg._sum.quantity ?? 0 };
+}

@@ -3,6 +3,7 @@ import {
   addItemToCartController,
   applyPromoController,
   getAvailablePromosController,
+  getCartCountController,
   getCartItemsController,
   removeCartItemController,
   removePromoController,
@@ -30,5 +31,7 @@ router
   .route("/promos/apply")
   .post(applyPromoController)
   .delete(removePromoController);
+
+router.get("/count", getCartCountController);
 
 export default router;

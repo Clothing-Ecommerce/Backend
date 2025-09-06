@@ -10,6 +10,7 @@ import {
   listAvailableCouponsForCart,
   applyPromoToCart,
   removePromoFromCart,
+  getCartCounts,
 } from "../services/cartService";
 
 /** Helper: get userId from auth and send 401 if missing */
@@ -160,5 +161,17 @@ export const removePromoController = async (req: AuthenticatedRequest, res: Resp
   } catch (err) {
     console.error("Error removing promo:", err);
     return res.status(500).json({ code: "INTERNAL_ERROR", message: "Lỗi máy chủ khi gỡ mã" });
+  }
+};
+
+export const getCartCountController = async (req: AuthenticatedRequest, res: Response) => {
+  const userId = getUserId(req, res);
+  if (userId === null) return;
+  try {
+    const counts = await getCartCounts(userId);
+    return res.status(200).json(counts);
+  } catch (err) {
+    console.error("Error get cart counts:", err);
+    return res.status(500).json({ code: "INTERNAL_ERROR", message: "Lỗi máy chủ khi lấy số lượng giỏ" });
   }
 };
