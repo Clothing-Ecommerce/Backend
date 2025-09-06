@@ -329,3 +329,41 @@ export async function getProductVariants(productId: number, inStockOnly = false)
     isActive: v.isActive,
   }));
 }
+
+export async function getSearchSuggestions(q: string, limitProducts = 8, limitCategories = 6) {
+  const query = q?.trim();
+  if (!query) return { products: [], categories: [] };
+
+  const [products, categories] = await Promise.all([
+    prisma.product.findMany({
+      where: { name: { contains: query, mode: "insensitive" } },
+      select: {
+        id: true, name: true, slug: true,
+        images: { where: { isPrimary: true }, select: { url: true }, take: 1 },
+      },
+      take: limitProducts,
+      orderBy: { name: "asc" },
+    }),
+    prisma.category.findMany({
+      where: {
+        OR: [
+          { name: { contains: query, mode: "insensitive" } },
+          { slug: { contains: query, mode: "insensitive" } },
+        ],
+      },
+      select: { id: true, name: true, slug: true, parentId: true },
+      take: limitCategories,
+      orderBy: { name: "asc" },
+    }),
+  ]);
+
+  return {
+    products: products.map(p => ({
+      id: p.id,
+      name: p.name,
+      slug: p.slug,
+      imageUrl: p.images[0]?.url ?? null,
+    })),
+    categories, // {id, name, slug, parentId}
+  };
+}

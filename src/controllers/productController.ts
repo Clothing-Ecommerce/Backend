@@ -7,6 +7,7 @@ import {
   getProductVariants,
   type GetProductsParams,
   type SortBy,
+  getSearchSuggestions,
 } from "../services/productService";
 
 function parseIntOrNull(v?: string) {
@@ -130,6 +131,18 @@ export const getProductVariantsController = async (req: Request, res: Response) 
     return res.json(variants); // return array
   } catch (err: any) {
     console.error("getProductVariantsController error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const searchSuggestController = async (req: Request, res: Response) => {
+  try {
+    const q = String(req.query.q ?? "").trim();
+    if (!q) return res.json({ products: [], categories: [] });
+    const data = await getSearchSuggestions(q);
+    return res.json(data);
+  } catch (err) {
+    console.error("searchSuggestController error:", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 };
