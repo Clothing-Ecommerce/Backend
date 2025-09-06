@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { getCategories } from "../services/categoryService";
+import { getCategories, getCategoryTree } from "../services/categoryService";
 
 export const getCategoriesController = async (req: Request, res: Response) => {
   try {
@@ -10,15 +10,19 @@ export const getCategoriesController = async (req: Request, res: Response) => {
   }
 };
 
-// import { Request, Response } from 'express';
-// import * as categoryService from '../services/categoryService';
-// import { Category } from '@prisma/client';
+export const getCategoryTreeController = async (req: Request, res: Response) => {
+  try {
+    const root = (req.query.root as string | undefined)?.trim();
+    const depth = Number(req.query.depth ?? 3);
+    const d = Number.isFinite(depth) && depth > 0 ? Math.min(depth, 6) : 3;
 
-// export const getCategories = async (req: Request, res: Response) => {
-//   try {
-//     const categories: Category[] = await categoryService.getAllCategories();
-//     res.status(200).json(categories);
-//   } catch (error: any) {
-//     res.status(500).json({ message: error.message });
-//   }
-// };
+    const data = await getCategoryTree(root, d);
+    if (root && !data) {
+      return res.status(404).json({ error: "Root category not found" });
+    }
+    return res.json(data);
+  } catch (err) {
+    console.error("getCategoryTreeController error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};

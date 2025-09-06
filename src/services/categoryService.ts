@@ -18,40 +18,50 @@ export async function getCategories() {
   return [all, ...mapped];
 }
 
-// export const getCategories = async () => {
-//   const categories = await prisma.category.findMany({
-//     select: {
-//       categoryId: true,
-//       name: true,
-//       _count: {
-//         select: { products: true },
-//       },
-//     },
-//   });
+export type CategoryNode = {
+  id: number;
+  name: string;
+  slug: string | null;
+  children: CategoryNode[];
+};
 
-//   const totalProducts = await prisma.product.count();
+async function buildNode(id: number, depth: number): Promise<CategoryNode> {
+  const node = await prisma.category.findUnique({
+    where: { id },
+    select: { id: true, name: true, slug: true },
+  });
+  if (!node) throw new Error("Category not found");
 
-//   const allCategories = [
-//     { id: 'all', name: 'All Products', count: totalProducts },
-//     ...categories.map((cat) => ({
-//       id: cat.categoryId.toString(),
-//       name: cat.name,
-//       count: cat._count.products,
-//     })),
-//   ];
+  if (depth <= 0) return { ...node, children: [] };
 
-//   return allCategories;
-// };
+  const children = await prisma.category.findMany({
+    where: { parentId: id },
+    select: { id: true, name: true, slug: true },
+    orderBy: { name: "asc" },
+  });
 
-// import prisma from '../database/prismaClient';
-// import { Category } from '@prisma/client';
+  const expanded = await Promise.all(
+    children.map((c) => buildNode(c.id, depth - 1))
+  );
+  return { ...node, children: expanded };
+}
 
-// export const getAllCategories = async (): Promise<Category[]> => {
-//   try {
-//     const categories = await prisma.category.findMany();
-//     return categories;
-//   } catch (error) {
-//     console.error('Error fetching all categories:', error);
-//     throw new Error('Could not retrieve categories.');
-//   }
-// };
+export async function getCategoryTree(rootSlug?: string, depth = 3) {
+  if (rootSlug) {
+    const root = await prisma.category.findUnique({
+      where: { slug: rootSlug },
+      select: { id: true },
+    });
+    if (!root) return null;
+    return await buildNode(root.id, depth);
+  }
+
+  // Trả về tất cả gốc
+  const roots = await prisma.category.findMany({
+    where: { parentId: null },
+    select: { id: true },
+    orderBy: { name: "asc" },
+  });
+  const trees = await Promise.all(roots.map((r) => buildNode(r.id, depth)));
+  return trees; // array
+}
