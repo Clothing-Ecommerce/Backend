@@ -1,66 +1,3 @@
-// import { Response } from "express";
-// import { AuthenticatedRequest } from "../middleware/authMiddleware";
-// import { addItemToCart, getCartItems } from "../services/cartService";
-
-// const getUserId = (req: AuthenticatedRequest, res: Response): number | null => {
-//   const userId = req.user?.userId;
-//   if (typeof userId !== "number") {
-//     res
-//       .status(401)
-//       .json({ message: "Người dùng chưa xác thực hoặc thông tin không đầy đủ" });
-//     return null;
-//   }
-//   return userId;
-// };
-
-// export const getCartItemsController = async (
-//   req: AuthenticatedRequest,
-//   res: Response
-// ) => {
-//   try {
-//     const userId = getUserId(req, res);
-//     if (!userId) return;
-
-//     const items = await getCartItems(userId);
-//     return res.status(200).json({ items });
-//   } catch (err) {
-//     console.error("Error fetching cart items:", err);
-//     return res
-//       .status(500)
-//       .json({ message: "Lỗi máy chủ khi lấy thông tin giỏ hàng" });
-//   }
-// };
-
-// export const addItemToCartController = async (
-//   req: AuthenticatedRequest,
-//   res: Response
-// ) => {
-//   try {
-//     const userId = getUserId(req, res);
-//     if (!userId) return;
-
-//     const { variantId, quantity = 1 } = req.body || {};
-//     const vId = Number(variantId);
-//     const qty = Number(quantity);
-
-//     if (!Number.isSafeInteger(vId) || vId <= 0) {
-//       return res.status(400).json({ message: "variantId không hợp lệ" });
-//     }
-//     const qtySafe = Number.isSafeInteger(qty) && qty > 0 ? qty : 1;
-
-//     const item = await addItemToCart(userId, vId, qtySafe);
-//     return res.status(201).json(item);
-//   } catch (err) {
-//     console.error("Error adding item to cart:", err);
-//     if (err instanceof Error && err.message === "VARIANT_NOT_FOUND") {
-//       return res.status(404).json({ message: "Không tìm thấy sản phẩm" });
-//     }
-//     return res
-//       .status(500)
-//       .json({ message: "Lỗi máy chủ khi thêm sản phẩm vào giỏ hàng" });
-//   }
-// };
-
 import { Response } from "express";
 import { AuthenticatedRequest } from "../middleware/authMiddleware";
 import {
@@ -70,6 +7,9 @@ import {
   updateCartItemQuantity,
   updateCartItemVariant,
   ServiceError,
+  listAvailableCouponsForCart,
+  applyPromoToCart,
+  removePromoFromCart,
 } from "../services/cartService";
 
 /** Helper: get userId from auth and send 401 if missing */
@@ -176,5 +116,49 @@ export const removeCartItemController = async (req: AuthenticatedRequest, res: R
       return res.status(err.httpStatus).json({ code: err.code, message: err.message, data: err.data });
     }
     return res.status(500).json({ code: "INTERNAL_ERROR", message: "Lỗi máy chủ khi xoá sản phẩm khỏi giỏ hàng" });
+  }
+};
+
+/** GET /cart/promos/available */
+export const getAvailablePromosController = async (req: AuthenticatedRequest, res: Response) => {
+  const userId = getUserId(req, res);
+  if (userId === null) return;
+  try {
+    const coupons = await listAvailableCouponsForCart(userId);
+    return res.status(200).json({ coupons });
+  } catch (err) {
+    console.error("Error listing promos:", err);
+    return res.status(500).json({ code: "INTERNAL_ERROR", message: "Lỗi máy chủ khi lấy danh sách mã" });
+  }
+};
+
+/** POST /cart/promos/apply  { code } */
+export const applyPromoController = async (req: AuthenticatedRequest, res: Response) => {
+  const userId = getUserId(req, res);
+  if (userId === null) return;
+  const code = String(req.body?.code || "").trim();
+  if (!code) return res.status(400).json({ code: "INVALID_INPUT", message: "Thiếu code" });
+  try {
+    const cart = await applyPromoToCart(userId, code);
+    return res.status(200).json(cart);
+  } catch (err: any) {
+    console.error("Error applying promo:", err);
+    if (err instanceof ServiceError) {
+      return res.status(err.httpStatus).json({ code: err.code, message: err.message, data: err.data });
+    }
+    return res.status(500).json({ code: "INTERNAL_ERROR", message: "Lỗi máy chủ khi áp mã" });
+  }
+};
+
+/** DELETE /cart/promos/apply */
+export const removePromoController = async (req: AuthenticatedRequest, res: Response) => {
+  const userId = getUserId(req, res);
+  if (userId === null) return;
+  try {
+    const cart = await removePromoFromCart(userId);
+    return res.status(200).json(cart);
+  } catch (err) {
+    console.error("Error removing promo:", err);
+    return res.status(500).json({ code: "INTERNAL_ERROR", message: "Lỗi máy chủ khi gỡ mã" });
   }
 };

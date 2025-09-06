@@ -270,8 +270,6 @@ export async function getProductById(id: number) {
   return product; // controller will decide 404 vs 200
 }
 
-// ---------- Service: Related Products ----------
-
 export async function getRelatedProducts(categoryId: number, currentProductId: number, take = 4) {
   const related = await prisma.product.findMany({
     where: {

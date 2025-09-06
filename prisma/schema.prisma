@@ -8,24 +8,27 @@ generator client {
 }
 
 // =================== Enums ===================
-
+// Vai trò người dùng
 enum Role {
-  CUSTOMER
-  STAFF
-  ADMIN
+  CUSTOMER   // khách hàng
+  STAFF      // nhân viên
+  ADMIN      // quản trị
 }
 
+// Trạng thái người dùng
 enum UserStatus {
   ACTIVE
   SUSPENDED
 }
 
+// Nhãn địa chỉ
 enum AddressLabel {
   HOME
   WORK
   OTHER
 }
 
+// Trạng thái đơn hàng (vòng đời fulfillment)
 enum OrderStatus {
   PENDING       // tạo đơn, chờ xác nhận
   CONFIRMED     // đã xác nhận
@@ -37,6 +40,7 @@ enum OrderStatus {
   REFUNDED      // hoàn tiền
 }
 
+// Phương thức thanh toán
 enum PaymentMethod {
   COD
   BANK_CARD
@@ -46,6 +50,7 @@ enum PaymentMethod {
   MOMO
 }
 
+// Trạng thái thanh toán
 enum PaymentStatus {
   PENDING
   AUTHORIZED
@@ -55,52 +60,54 @@ enum PaymentStatus {
   CANCELED
 }
 
+// Loại giảm giá (cho Coupon)
 enum DiscountType {
-  PERCENTAGE
-  FIXED
+  PERCENTAGE // % trên subtotal
+  FIXED      // số tiền cố định
 }
 
+// Loại giá (quản lý lịch sử giá)
 enum PriceType {
   LIST   // giá niêm yết (MSRP/compare-at)
-  SALE   // giá bán áp dụng
+  SALE   // giá bán áp dụng (đã giảm)
 }
 
 // =================== Users & Addresses ===================
 
 model User {
-  id           Int         @id @default(autoincrement())
-  email        String      @unique
-  username     String
-  passwordHash String
-  phone        String?
-  gender       String?
-  dateOfBirth  DateTime?
-  avatar       String?
-  role         Role        @default(CUSTOMER)
-  status       UserStatus  @default(ACTIVE)
+  id           Int         @id @default(autoincrement()) // PK tự tăng
+  email        String      @unique                       // email duy nhất
+  username     String                                     // tên hiển thị/đăng nhập
+  passwordHash String                                     // hash mật khẩu
+  phone        String?                                    // SĐT (tùy chọn)
+  gender       String?                                    // giới tính (tùy chọn)
+  dateOfBirth  DateTime?                                  // ngày sinh (tùy chọn)
+  avatar       String?                                    // URL avatar (tùy chọn)
+  role         Role        @default(CUSTOMER)             // vai trò
+  status       UserStatus  @default(ACTIVE)               // trạng thái tài khoản
 
-  addresses    Address[]
-  cart         Cart?
-  orders       Order[]
-  reviews      Review[]
-  wishlists    WishlistItem[]
+  addresses    Address[]                                  // 1-N: địa chỉ giao hàng
+  cart         Cart?                                      // 1-1: giỏ hàng
+  orders       Order[]                                    // 1-N: đơn hàng
+  reviews      Review[]                                   // 1-N: đánh giá
+  wishlists    WishlistItem[]                             // 1-N: wishlist
 
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  createdAt    DateTime    @default(now())                // thời điểm tạo
+  updatedAt    DateTime    @updatedAt                     // tự động cập nhật
 }
 
 model Address {
-  id            Int           @id @default(autoincrement())
-  userId        Int
+  id            Int           @id @default(autoincrement()) // PK
+  userId        Int                                         // FK -> User.id
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  isDefault     Boolean       @default(false)
-  label         AddressLabel?
-  recipient     String
-  phone         String?
-  company       String?
+  isDefault     Boolean       @default(false)               // có phải địa chỉ mặc định
+  label         AddressLabel?                               // nhãn địa chỉ
+  recipient     String                                      // người nhận
+  phone         String?                                     // SĐT người nhận
+  company       String?                                     // công ty (tùy chọn)
 
-  // VN-style address parts
+  // VN-style address parts (theo chuẩn VN)
   houseNumber   String?
   street        String?
   wardCode      String?
@@ -114,44 +121,44 @@ model Address {
   block         String?
   floor         String?
   room          String?
-  notes         String?
+  notes         String?                                     // ghi chú giao hàng
 
-  country       String        @default("Vietnam")
-  geoLat        Float?
-  geoLng        Float?
+  country       String        @default("Vietnam")           // quốc gia (mặc định VN)
+  geoLat        Float?                                      // toạ độ lat (tùy chọn)
+  geoLng        Float?                                      // toạ độ lng (tùy chọn)
 
-  orders        Order[]
+  orders        Order[]                                     // đơn hàng giao đến địa chỉ này
 
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
   @@index([userId])
-  @@index([provinceCode, districtCode, wardCode])
+  @@index([provinceCode, districtCode, wardCode])           // index tra cứu địa lý
 }
 
 model Province {
-  code      String    @id
-  name      String
-  type      String?
-  districts District[]
+  code      String    @id   // mã tỉnh (PK dạng text)
+  name      String           // tên tỉnh
+  type      String?          // loại (tỉnh/thành phố)
+  districts District[]       // 1-N: quận/huyện
 }
 
 model District {
-  code         String   @id
+  code         String   @id   // mã quận/huyện
   name         String
   type         String?
-  provinceCode String
+  provinceCode String           // FK -> Province.code
   province     Province  @relation(fields: [provinceCode], references: [code], onDelete: Restrict)
-  wards        Ward[]
+  wards        Ward[]           // 1-N: phường/xã
 
   @@index([provinceCode])
 }
 
 model Ward {
-  code         String   @id
+  code         String   @id   // mã phường/xã
   name         String
   type         String?
-  districtCode String
+  districtCode String           // FK -> District.code
   district     District @relation(fields: [districtCode], references: [code], onDelete: Restrict)
 
   @@index([districtCode])
@@ -160,185 +167,190 @@ model Ward {
 // =================== Catalog: Category / Brand / Product / Variant ===================
 
 model Category {
-  id          Int        @id @default(autoincrement())
-  name        String
-  slug        String?     @unique
-  description String?
+  id          Int        @id @default(autoincrement()) // PK
+  name        String                                     // tên danh mục
+  slug        String?     @unique                        // slug SEO
+  description String?                                    // mô tả
 
-  products    Product[]
+  parentId    Int?                                        // FK tự tham chiếu (null = root)
+  parent      Category? @relation("CategoryToCategory", fields: [parentId], references: [id]) 
+  children    Category[] @relation("CategoryToCategory")                                      
+
+  products    Product[]                                  // 1-N: sản phẩm
 
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 }
 
 model Brand {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  logoUrl   String?
-  products  Product[]
+  id        Int      @id @default(autoincrement()) // PK
+  name      String   @unique                       // tên brand duy nhất
+  logoUrl   String?                                // logo (URL)
+  products  Product[]                              // 1-N: sản phẩm thuộc brand
 }
 
 model Product {
-  id           Int             @id @default(autoincrement())
-  name         String
-  slug         String?          @unique
-  description  String?
-  basePrice    Decimal        
+  id           Int             @id @default(autoincrement()) // PK
+  name         String                                        // tên sản phẩm
+  slug         String?          @unique                      // slug SEO
+  description  String?                                       // mô tả
+  basePrice    Decimal                                       // giá cơ sở (VND) dùng khi variant/price không có
 
-  categoryId   Int
+  categoryId   Int                                           // FK -> Category.id
   category     Category        @relation(fields: [categoryId], references: [id])
 
   brandId      Int?
   brand        Brand?          @relation(fields: [brandId], references: [id])
 
-  images       ProductImage[]
-  variants     ProductVariant[]
-  reviews      Review[]
-  wishlistedBy WishlistItem[]
+  images       ProductImage[]  // ảnh sản phẩm
+  variants     ProductVariant[]// các biến thể (size/color)
+  reviews      Review[]        // đánh giá
+  wishlistedBy WishlistItem[]  // wishlist tham chiếu đến product
 
   // flexible metadata (optional)
-  features        Json?
-  specifications  Json?
+  features        Json?        // thuộc tính nổi bật
+  specifications  Json?        // thông số kỹ thuật
 
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 
   @@index([categoryId])
-  @@index([name])
+  @@index([name])              // hỗ trợ tìm kiếm theo tên
 }
 
 model ProductImage {
-  id         Int      @id @default(autoincrement())
-  productId  Int
+  id         Int      @id @default(autoincrement()) // PK
+  productId  Int                                     // FK -> Product.id
   product    Product  @relation(fields: [productId], references: [id])
 
-  url        String
-  alt        String?
-  isPrimary  Boolean  @default(false)
-  sortOrder  Int      @default(0)
+  url        String                                  // URL ảnh
+  alt        String?                                 // văn bản thay thế
+  isPrimary  Boolean  @default(false)                // đánh dấu ảnh chính
+  sortOrder  Int      @default(0)                    // thứ tự sắp xếp
 
   createdAt  DateTime @default(now())
 }
 
 model Size {
-  id       Int              @id @default(autoincrement())
-  name     String           @unique
-  note     String?
-  variants ProductVariant[]
+  id       Int              @id @default(autoincrement()) // PK
+  name     String           @unique                       // tên size (S, M, L, ...)
+  note     String?                                         // ghi chú
+  variants ProductVariant[]                                // 1-N: variant dùng size này
 }
 
 model Color {
-  id       Int              @id @default(autoincrement())
-  name     String           @unique
-  hex      String?
-  variants ProductVariant[]
+  id       Int              @id @default(autoincrement()) // PK
+  name     String           @unique                       // tên màu
+  hex      String?                                         // mã màu HEX (tùy chọn)
+  variants ProductVariant[]                                // 1-N: variant dùng màu này
 }
 
 model ProductVariant {
-  id         Int      @id @default(autoincrement())
-  productId  Int
+  id         Int      @id @default(autoincrement()) // PK
+  productId  Int                                     // FK -> Product.id
   product    Product  @relation(fields: [productId], references: [id])
 
-  sizeId     Int?
+  sizeId     Int?                                     // FK -> Size.id (nullable = sản phẩm không có size)
   size       Size?    @relation(fields: [sizeId], references: [id])
 
-  colorId    Int?
+  colorId    Int?                                     // FK -> Color.id (nullable = không phân màu)
   color      Color?   @relation(fields: [colorId], references: [id])
 
-  sku        String?  @unique
+  sku        String?  @unique                         // SKU (tùy chọn)
   // null => dùng Product.basePrice
-  price      Decimal?
-  stock      Int      @default(0)
-  isActive   Boolean  @default(true)
+  price      Decimal?                                 // giá riêng của variant (nếu có)
+  stock      Int      @default(0)                     // tồn kho biến thể
+  isActive   Boolean  @default(true)                  // đang mở bán hay không
 
-  prices     Price[]
-  orderItems OrderItem[]
-  cartItems  CartItem[]
+  prices     Price[]                                  // lịch sử giá (LIST/SALE)
+  orderItems OrderItem[]                              // các dòng đơn hàng dùng variant này
+  cartItems  CartItem[]                               // các dòng giỏ hàng dùng variant này
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  @@unique([productId, sizeId, colorId])
+  @@unique([productId, sizeId, colorId])              // một sản phẩm chỉ có 1 biến thể cho (size,color) cụ thể
   @@index([productId])
 }
 
 // =================== Pricing (history / analytics) ===================
 
 model Price {
-  id              Int            @id @default(autoincrement())
-  variantId       Int
+  id              Int            @id @default(autoincrement()) // PK
+  variantId       Int                                         // FK -> ProductVariant.id
   variant         ProductVariant @relation(fields: [variantId], references: [id])
 
-  type            PriceType
-  amount          Decimal       
-  currency        String         @default("VND")
+  type            PriceType                                    // LIST hoặc SALE
+  amount          Decimal                                      // giá trị VND
+  currency        String         @default("VND")               // mã tiền tệ (mặc định VND)
 
-  // validity window (null = open)
+  // validity window (null = open): khoảng thời gian hiệu lực của record giá
   startAt         DateTime?
   endAt           DateTime?
 
-  // analytics helpers
-  cost            Decimal?       // reference cost
-  isTaxInclusive  Boolean        @default(false)
-  taxRate         Decimal?       // e.g. 10.00 = 10%
+  // analytics helpers (không bắt buộc)
+  cost            Decimal?       // giá vốn tham khảo
+  isTaxInclusive  Boolean        @default(false) // amount đã bao gồm thuế hay chưa
+  taxRate         Decimal?       // % thuế áp dụng cho record này (nếu muốn theo dõi)
 
-  note            String?
+  note            String?        // ghi chú nội bộ
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
-  @@index([variantId, type, startAt, endAt])
+  @@index([variantId, type, startAt, endAt])                    // truy vấn nhanh theo variant, loại, và thời gian
 }
 
 // =================== Cart ===================
 
 model Cart {
-  id        Int        @id @default(autoincrement())
-  userId    Int        @unique
+  id        Int        @id @default(autoincrement()) // PK
+  userId    Int        @unique                       // 1 user = 1 cart
   user      User       @relation(fields: [userId], references: [id])
 
-  items     CartItem[]
+  items     CartItem[]                               // các dòng giỏ hàng
+  coupons   CartCoupon[]                             // các mã áp vào giỏ (thiết kế hỗ trợ nhiều mã, thường dùng 1)
 
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 }
 
 model CartItem {
-  id        Int             @id @default(autoincrement())
-  cartId    Int
+  id        Int             @id @default(autoincrement()) // PK
+  cartId    Int                                         // FK -> Cart.id
   cart      Cart            @relation(fields: [cartId], references: [id])
 
-  variantId Int
+  variantId Int                                         // FK -> ProductVariant.id
   variant   ProductVariant  @relation(fields: [variantId], references: [id])
 
-  quantity  Int             @default(1)
-  addedAt   DateTime        @default(now())
+  quantity  Int             @default(1)                  // số lượng
+  addedAt   DateTime        @default(now())              // thời điểm thêm
 
-  @@unique([cartId, variantId])
+  @@unique([cartId, variantId])                         // 1 biến thể chỉ 1 dòng trong giỏ
   @@index([variantId])
 }
 
 // =================== Orders ===================
 
 model Order {
-  id            Int         @id @default(autoincrement())
-  userId        Int
+  id            Int         @id @default(autoincrement()) // PK
+  userId        Int                                         // FK -> User.id
   user          User        @relation(fields: [userId], references: [id])
 
-  addressId     Int?
+  addressId     Int?                                        // địa chỉ giao hàng (snapshot)
   address       Address?    @relation(fields: [addressId], references: [id])
 
-  status        OrderStatus @default(PENDING)
+  status        OrderStatus @default(PENDING)               // trạng thái đơn
 
-  subtotal      Decimal    
-  discount      Decimal     @default(0)
-  shippingFee   Decimal     @default(0)
-  total         Decimal    
+  subtotal      Decimal                                     // tạm tính (trước discount & ship & tax)
+  discount      Decimal     @default(0)                     // tổng tiền giảm (từ coupon, v.v.)
+  shippingFee   Decimal     @default(0)                     // phí vận chuyển
+  total         Decimal                                     // tổng phải trả (tính cuối cùng)
 
-  notes         String?
+  notes         String?                                     // ghi chú đơn
 
-  items         OrderItem[]
-  payment       Payment?
-  coupons       OrderCoupon[]
+  items         OrderItem[]                                 // danh sách dòng hàng
+  payment       Payment?                                    // record thanh toán
+  coupons       OrderCoupon[]                               // mã áp vào order (snapshot từ cart)
 
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
@@ -348,19 +360,19 @@ model Order {
 }
 
 model OrderItem {
-  id           Int             @id @default(autoincrement())
-  orderId      Int
+  id           Int             @id @default(autoincrement()) // PK
+  orderId      Int                                         // FK -> Order.id
   order        Order           @relation(fields: [orderId], references: [id])
 
-  variantId    Int
+  variantId    Int                                         // FK -> ProductVariant.id
   variant      ProductVariant  @relation(fields: [variantId], references: [id])
 
-  quantity     Int
+  quantity     Int                                         // số lượng
   // snapshot tại thời điểm bán
-  priceAtTime  Decimal        
-  costAtTime   Decimal?       
-  taxRate      Decimal?      
-  taxAmount    Decimal?       
+  priceAtTime  Decimal                                      // đơn giá tại thời điểm đặt
+  costAtTime   Decimal?                                     // giá vốn tại thời điểm đặt (nếu track)
+  taxRate      Decimal?                                     // % thuế snapshot
+  taxAmount    Decimal?                                     // tiền thuế snapshot
 
   createdAt    DateTime        @default(now())
 
@@ -369,15 +381,15 @@ model OrderItem {
 }
 
 model Payment {
-  id              Int            @id @default(autoincrement())
-  orderId         Int            @unique
+  id              Int            @id @default(autoincrement()) // PK
+  orderId         Int            @unique                       // FK -> Order.id, 1-1
   order           Order          @relation(fields: [orderId], references: [id])
 
-  method          PaymentMethod
-  status          PaymentStatus  @default(PENDING)
-  amount          Decimal       
-  transactionCode String?
-  paidAt          DateTime?
+  method          PaymentMethod                               // phương thức thanh toán
+  status          PaymentStatus  @default(PENDING)             // trạng thái thanh toán
+  amount          Decimal                                      // số tiền thanh toán
+  transactionCode String?                                      // mã GD cổng thanh toán
+  paidAt          DateTime?                                    // thời điểm thanh toán thành công
 
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -388,72 +400,87 @@ model Payment {
 // =================== Reviews & Wishlist ===================
 
 model Review {
-  id          Int       @id @default(autoincrement())
-  productId   Int
+  id          Int       @id @default(autoincrement()) // PK
+  productId   Int                                      // FK -> Product.id
   product     Product   @relation(fields: [productId], references: [id])
 
-  userId      Int
+  userId      Int                                      // FK -> User.id
   user        User      @relation(fields: [userId], references: [id])
 
-  rating      Int
-  title       String?
-  content     String?
-  isPublished Boolean   @default(true)
+  rating      Int                                      // sao (1-5)
+  title       String?                                  // tiêu đề
+  content     String?                                  // nội dung
+  isPublished Boolean   @default(true)                 // đã duyệt/hiển thị
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  @@unique([productId, userId])
+  @@unique([productId, userId])                        // 1 user 1 review / product
   @@index([productId])
   @@index([userId])
 }
 
 model WishlistItem {
-  id        Int      @id @default(autoincrement())
-  userId    Int
+  id        Int      @id @default(autoincrement()) // PK
+  userId    Int                                      // FK -> User.id
   user      User     @relation(fields: [userId], references: [id])
 
-  productId Int
+  productId Int                                      // FK -> Product.id
   product   Product  @relation(fields: [productId], references: [id])
 
   createdAt DateTime @default(now())
 
-  @@unique([userId, productId])
+  @@unique([userId, productId])                      // 1 sản phẩm chỉ 1 lần trong wishlist
   @@index([productId])
 }
 
 // =================== Discounts / Coupons ===================
 
 model Coupon {
-  id             Int      @id @default(autoincrement())
-  code           String   @unique
-  description    String?
-  type           DiscountType
-  value          Decimal  // % hoặc số tiền cố định
-  maxDiscount    Decimal?
-  minOrderValue  Decimal?
+  id             Int      @id @default(autoincrement()) // PK
+  code           String   @unique                        // mã code hiển thị (SAVE10...)
+  description    String?                                 // mô tả hiển thị
+  type           DiscountType                            // PERCENTAGE hoặc FIXED
+  value          Decimal                                 // giá trị giảm (VD: 10 = 10% | 50000 = 50,000đ)
+  maxDiscount    Decimal?                                // trần giảm cho % (nếu có)
+  minOrderValue  Decimal?                                // điều kiện đơn tối thiểu
 
-  startsAt       DateTime?
-  endsAt         DateTime?
+  startsAt       DateTime?                               // thời điểm bắt đầu (null = luôn mở)
+  endsAt         DateTime?                               // thời điểm kết thúc (null = vô hạn)
 
-  usageLimit     Int?
-  usageCount     Int      @default(0)
-  isActive       Boolean  @default(true)
+  usageLimit     Int?                                    // tổng số lần cho phép dùng (toàn hệ thống)
+  usageCount     Int      @default(0)                    // đã dùng bao nhiêu lần (tăng khi áp vào Order, tuỳ business)
 
-  orders         OrderCoupon[]
+  isActive       Boolean  @default(true)                 // bật/tắt mã
+  freeShipping   Boolean  @default(false)                // có freeship khi dùng mã không
+
+  orders         OrderCoupon[]                           // các order đã dùng mã (snapshot)
+  carts          CartCoupon[]                            // các cart đang lưu mã (persist trong giỏ)
 
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 }
 
 model OrderCoupon {
-  orderId      Int
-  couponId     Int
-  // giá trị thực tế áp cho đơn (sau khi tính rule)
+  orderId      Int                                         // PK 1/2: FK -> Order.id
+  couponId     Int                                         // PK 2/2: FK -> Coupon.id
+  // giá trị thực tế áp cho đơn (sau khi tính rule, snapshot để không bị đổi theo thời gian)
   appliedValue Decimal
 
   order   Order  @relation(fields: [orderId], references: [id])
   coupon  Coupon @relation(fields: [couponId], references: [id])
 
-  @@id([orderId, couponId])
+  @@id([orderId, couponId])                               // composite PK
+}
+
+model CartCoupon {
+  cartId       Int                                         // PK 1/2: FK -> Cart.id
+  couponId     Int                                         // PK 2/2: FK -> Coupon.id
+  appliedValue Decimal                                     // số tiền giảm hiện đang áp cho giỏ (tính theo subtotal thời điểm áp)
+  freeShipping Boolean @default(false)                     // cờ free ship từ mã (đẩy vào summary giỏ)
+
+  cart   Cart   @relation(fields: [cartId], references: [id])
+  coupon Coupon @relation(fields: [couponId], references: [id])
+
+  @@id([cartId, couponId])                                // composite PK (thiết kế hỗ trợ nhiều mã, nếu muốn 1 mã/giỏ thì xóa bớt khi apply)
 }
