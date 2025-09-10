@@ -2,18 +2,21 @@ import prisma from "../database/prismaClient";
 
 export async function getCategories() {
   const categories = await prisma.category.findMany({
-    select: { id: true, name: true, _count: { select: { products: true } } },
+    select: { id: true, slug: true, name: true, _count: { select: { products: true } } },
     orderBy: { name: "asc" },
   });
 
+  // Dùng slug để FE truyền ?category=<slug>
   const mapped = categories.map((c) => ({
-    id: String(c.id),
+    slug: c.slug,                 // <— quan trọng
     name: c.name,
     count: c._count.products,
   }));
 
   const total = mapped.reduce((sum, c) => sum + c.count, 0);
-  const all = { id: "all", name: "All Products", count: total };
+
+  // Giữ lại phần "All" (tiện FE hiển thị) nhưng dùng slug 'all'
+  const all = { slug: "all", name: "All Products", count: total };
 
   return [all, ...mapped];
 }
@@ -21,7 +24,7 @@ export async function getCategories() {
 export type CategoryNode = {
   id: number;
   name: string;
-  slug: string | null;
+  slug: string;
   children: CategoryNode[];
 };
 

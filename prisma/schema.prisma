@@ -169,7 +169,7 @@ model Ward {
 model Category {
   id          Int        @id @default(autoincrement()) // PK
   name        String                                     // tên danh mục
-  slug        String?     @unique                        // slug SEO
+  slug        String     @unique                         // slug SEO
   description String?                                    // mô tả
 
   parentId    Int?                                        // FK tự tham chiếu (null = root)
@@ -180,6 +180,8 @@ model Category {
 
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
+
+  @@index([parentId])
 }
 
 model Brand {
@@ -192,7 +194,7 @@ model Brand {
 model Product {
   id           Int             @id @default(autoincrement()) // PK
   name         String                                        // tên sản phẩm
-  slug         String?          @unique                      // slug SEO
+  slug         String          @unique                       // slug SEO
   description  String?                                       // mô tả
   basePrice    Decimal                                       // giá cơ sở (VND) dùng khi variant/price không có
 
@@ -215,6 +217,7 @@ model Product {
   updatedAt    DateTime        @updatedAt
 
   @@index([categoryId])
+  @@index([brandId])
   @@index([name])              // hỗ trợ tìm kiếm theo tên
 }
 
@@ -271,6 +274,7 @@ model ProductVariant {
 
   @@unique([productId, sizeId, colorId])              // một sản phẩm chỉ có 1 biến thể cho (size,color) cụ thể
   @@index([productId])
+  @@index([isActive, stock])                          // hỗ trợ lọc in-stock
 }
 
 // =================== Pricing (history / analytics) ===================

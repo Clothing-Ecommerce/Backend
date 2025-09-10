@@ -47,7 +47,20 @@ export const getProductsController = async (req: Request, res: Response) => {
       inStockOnly = "false",
     } = req.query as any;
 
-    const categoryId = category && category !== "all" ? parseIntOrNull(String(category)) : null;
+    // const categoryId = category && category !== "all" ? parseIntOrNull(String(category)) : null;
+    const categoryParam = (category ?? "").toString().trim();
+    let categoryId: number | null = null;
+    let categorySlug: string | null = null;
+
+    if (categoryParam && categoryParam !== "all") {
+      const maybeId = Number.parseInt(categoryParam, 10);
+      if (Number.isFinite(maybeId)) {
+        categoryId = maybeId;                  // tương thích cũ
+      } else {
+        categorySlug = categoryParam;          // hỗ trợ slug
+      }
+    }
+
     const brandId = brand && brand !== "all" ? parseIntOrNull(String(brand)) : null;
 
     const pageNum = parseIntOrNull(String(page)) ?? 1;
@@ -63,6 +76,7 @@ export const getProductsController = async (req: Request, res: Response) => {
     const params: GetProductsParams = {
       search: search?.toString().trim() || undefined,
       categoryId,
+      categorySlug, 
       brandId,
       minPrice: minD,
       maxPrice: maxD,

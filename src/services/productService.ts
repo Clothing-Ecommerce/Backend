@@ -20,6 +20,7 @@ export interface GetProductsQuery {
 export interface GetProductsParams {
   search?: string;
   categoryId?: number | null;
+  categorySlug?: string | null; 
   brandId?: number | null;
   minPrice?: Prisma.Decimal | null;
   maxPrice?: Prisma.Decimal | null;
@@ -118,12 +119,34 @@ function computeProductEffectivePrice(
   return { effective: minEff, compareAt };
 }
 
+async function collectDescendantCategoryIds(rootId: number): Promise<number[]> {
+  const seen = new Set<number>([rootId]);
+  let frontier = [rootId];
+
+  while (frontier.length) {
+    const children = await prisma.category.findMany({
+      where: { parentId: { in: frontier } },
+      select: { id: true },
+    });
+    const next: number[] = [];
+    for (const c of children) {
+      if (!seen.has(c.id)) {
+        seen.add(c.id);
+        next.push(c.id);
+      }
+    }
+    frontier = next;
+  }
+  return Array.from(seen);
+}
+
 // ---------- Service: Get Products (list) ----------
 
 export async function getProducts(params: GetProductsParams) {
   const {
     search,
     categoryId,
+    categorySlug,
     brandId,
     minPrice,
     maxPrice,
@@ -133,12 +156,24 @@ export async function getProducts(params: GetProductsParams) {
     inStockOnly,
   } = params;
 
+  // === Resolve categoryIds từ id hoặc slug ===
+  let categoryIds: number[] | undefined;
+  if (categoryId != null) {
+    categoryIds = await collectDescendantCategoryIds(categoryId);
+  } else if (categorySlug) {
+    const root = await prisma.category.findUnique({ where: { slug: categorySlug } });
+    if (!root) {
+      return { products: [], total: 0, totalPrePrice: 0, page, pageSize }; // slug không có
+    }
+    categoryIds = await collectDescendantCategoryIds(root.id);
+  }
+
   // Base where (non-price filters)
   const where: Prisma.ProductWhereInput = {
     ...(search
       ? { name: { contains: search.trim(), mode: "insensitive" as const } }
       : null),
-    ...(categoryId ? { categoryId } : null),
+    ...(categoryIds ? { categoryId: { in: categoryIds } } : null),
     ...(brandId ? { brandId } : null),
     // only show products which have some active variants (and optionally in stock)
     variants: {
