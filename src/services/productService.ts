@@ -19,8 +19,13 @@ export interface GetProductsQuery {
 
 export interface GetProductsParams {
   search?: string;
-  categoryId?: number | null;
-  categorySlug?: string | null; 
+  // categoryId?: number | null;
+  // categorySlug?: string | null; 
+
+  // [MULTI] đổi từ đơn → mảng
+  categoryIds?: number[] | null;
+  categorySlugs?: string[] | null;
+
   brandId?: number | null;
   minPrice?: Prisma.Decimal | null;
   maxPrice?: Prisma.Decimal | null;
@@ -140,13 +145,53 @@ async function collectDescendantCategoryIds(rootId: number): Promise<number[]> {
   return Array.from(seen);
 }
 
+// [MULTI] Hỗ trợ nhiều slug/id → hợp nhất ID (kể cả cây con)
+async function resolveCategoryFilterIds(opts: {
+  categoryIds?: number[] | null;
+  categorySlugs?: string[] | null;
+}): Promise<number[] | undefined> {
+  const idSet = new Set<number>();
+
+  // Từ ID
+  if (opts.categoryIds?.length) {
+    for (const id of opts.categoryIds) {
+      if (Number.isFinite(id)) {
+        const ids = await collectDescendantCategoryIds(id);
+        ids.forEach((x) => idSet.add(x));
+      }
+    }
+  }
+
+  // Từ slug
+  if (opts.categorySlugs?.length) {
+    const slugs = Array.from(new Set(opts.categorySlugs.map((s) => s.trim()).filter(Boolean)));
+    if (slugs.length) {
+      const roots = await prisma.category.findMany({
+        where: { slug: { in: slugs } },
+        select: { id: true },
+      });
+      for (const r of roots) {
+        const ids = await collectDescendantCategoryIds(r.id);
+        ids.forEach((x) => idSet.add(x));
+      }
+    }
+  }
+
+  if (idSet.size === 0) return undefined;
+  return Array.from(idSet);
+}
+
 // ---------- Service: Get Products (list) ----------
 
 export async function getProducts(params: GetProductsParams) {
   const {
     search,
-    categoryId,
-    categorySlug,
+    // categoryId,
+    // categorySlug,
+
+    categoryIds: inputCategoryIds,
+    categorySlugs: inputCategorySlugs,
+
     brandId,
     minPrice,
     maxPrice,
@@ -157,15 +202,29 @@ export async function getProducts(params: GetProductsParams) {
   } = params;
 
   // === Resolve categoryIds từ id hoặc slug ===
-  let categoryIds: number[] | undefined;
-  if (categoryId != null) {
-    categoryIds = await collectDescendantCategoryIds(categoryId);
-  } else if (categorySlug) {
-    const root = await prisma.category.findUnique({ where: { slug: categorySlug } });
-    if (!root) {
-      return { products: [], total: 0, totalPrePrice: 0, page, pageSize }; // slug không có
-    }
-    categoryIds = await collectDescendantCategoryIds(root.id);
+  // let categoryIds: number[] | undefined;
+  // if (categoryId != null) {
+  //   categoryIds = await collectDescendantCategoryIds(categoryId);
+  // } else if (categorySlug) {
+  //   const root = await prisma.category.findUnique({ where: { slug: categorySlug } });
+  //   if (!root) {
+  //     return { products: [], total: 0, totalPrePrice: 0, page, pageSize }; // slug không có
+  //   }
+  //   categoryIds = await collectDescendantCategoryIds(root.id);
+  // }
+
+  const hadCategoryInput =
+    (inputCategoryIds && inputCategoryIds.length > 0) || (inputCategorySlugs && inputCategorySlugs.length > 0);
+
+  // [MULTI] Resolve tất cả categoryIds (bao gồm cây con) từ nhiều input
+  const categoryIds = await resolveCategoryFilterIds({
+    categoryIds: inputCategoryIds ?? undefined,
+    categorySlugs: inputCategorySlugs ?? undefined,
+  });
+
+  // 🔧 NEW: nếu user có gửi categories nhưng không khớp DB -> trả về 0 thay vì “tất cả”
+  if (hadCategoryInput && (!categoryIds || categoryIds.length === 0)) {
+    return { products: [], total: 0, totalPrePrice: 0, page, pageSize };
   }
 
   // Base where (non-price filters)
@@ -173,7 +232,7 @@ export async function getProducts(params: GetProductsParams) {
     ...(search
       ? { name: { contains: search.trim(), mode: "insensitive" as const } }
       : null),
-    ...(categoryIds ? { categoryId: { in: categoryIds } } : null),
+    ...(categoryIds && categoryIds.length ? { categoryId: { in: categoryIds } } : null),
     ...(brandId ? { brandId } : null),
     // only show products which have some active variants (and optionally in stock)
     variants: {
