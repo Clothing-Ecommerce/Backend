@@ -353,7 +353,12 @@ model Order {
   notes         String?                                     // ghi chú đơn
 
   items         OrderItem[]                                 // danh sách dòng hàng
-  payment       Payment?                                    // record thanh toán
+
+  payments      Payment[]                                    // record thanh toán (1–N payments (đa attempt))
+  // [NEW] con trỏ đến payment thành công cuối cùng (tuỳ chọn)
+  paymentSuccessId Int? @unique                            // [NEW]
+  paymentSuccess   Payment? @relation("OrderPaymentSuccess", fields: [paymentSuccessId], references: [id], onDelete: SetNull) // [NEW]
+
   coupons       OrderCoupon[]                               // mã áp vào order (snapshot từ cart)
 
   createdAt     DateTime    @default(now())
@@ -361,6 +366,7 @@ model Order {
 
   @@index([userId])
   @@index([status])
+  @@index([createdAt])
 }
 
 model OrderItem {
@@ -384,21 +390,116 @@ model OrderItem {
   @@index([variantId])
 }
 
+// =================== Payments (1–N attempts) ===================
+
 model Payment {
   id              Int            @id @default(autoincrement()) // PK
-  orderId         Int            @unique                       // FK -> Order.id, 1-1
+  
+  // 1 order có nhiều attempt
+  orderId         Int            
   order           Order          @relation(fields: [orderId], references: [id])
+
+  attemptNo        Int            @default(1)                    // số lần thử (1, 2, 3...)
 
   method          PaymentMethod                               // phương thức thanh toán
   status          PaymentStatus  @default(PENDING)             // trạng thái thanh toán
   amount          Decimal                                      // số tiền thanh toán
-  transactionCode String?                                      // mã GD cổng thanh toán
+  
+  // Định danh ngoài từ gateway (MoMo/VNPay...)
+  providerOrderId    String?       // [NEW] orderId gửi ra cổng
+  providerRequestId  String?       // [NEW] requestId gửi ra cổng (idempotency)
+  providerTransId    String?       // [NEW] transId do cổng trả về
+  payType            String?       // [NEW] 'qr'|'webApp'|'credit'|'napas'...
+  resultCode         Int?          // [NEW] 0, 9000, ...
+  resultMessage      String?       // [NEW]
+  payUrl             String?       // [NEW] payUrl/shortLink
+  extraData          String?       // [NEW] raw base64
+  extraDataJson      Json?         // [NEW] decode sẵn để query
+
+  // transactionCode String?                                      // mã GD cổng thanh toán
   paidAt          DateTime?                                    // thời điểm thanh toán thành công
+
+  // 2-step (authorize -> capture)
+  authorizedAt       DateTime?     // [NEW]
+  capturedAt         DateTime?     // [NEW]
+  capturedAmount     Decimal?      
+  
+  webhooks PaymentWebhook[]
+  captures PaymentCapture[]
+  refunds  PaymentRefund[]
 
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
+  // Quan hệ ngược dành cho Order.paymentSuccess
+  orderPaymentSuccess Order? @relation("OrderPaymentSuccess")  // [NEW]
+
+  @@index([orderId])                                           // [CHANGED]
+  @@unique([orderId, attemptNo])                               // [NEW]
   @@index([status])
+  @@index([providerRequestId])                                 // [NEW]
+  @@index([providerTransId])                                   // [NEW]
+  @@index([createdAt])
+}
+
+// =================== Webhook log / Refund / Capture ===================
+// [NEW]
+model PaymentWebhook {
+  id              Int       @id @default(autoincrement())
+  paymentId       Int
+  payment         Payment   @relation(fields: [paymentId], references: [id])
+
+  headers         Json?
+  bodyRaw         String?
+  bodyJson        Json?
+  signature       String?
+  verified        Boolean   @default(false)
+  resultCode      Int?
+  message         String?
+  providerTransId String?
+
+  receivedAt      DateTime  @default(now())
+  processedAt     DateTime?
+  processNote     String?
+
+  @@index([paymentId])
+  @@index([verified])
+  @@index([resultCode])
+  @@index([receivedAt])
+}
+
+// [NEW]
+model PaymentCapture {
+  id              Int       @id @default(autoincrement())
+  paymentId       Int
+  payment         Payment   @relation(fields: [paymentId], references: [id])
+
+  amount          Decimal   @db.Decimal(18,2)
+  providerTransId String?
+  resultCode      Int?
+  message         String?
+
+  createdAt       DateTime  @default(now())
+
+  @@index([paymentId])
+}
+
+// [NEW]
+model PaymentRefund {
+  id              Int       @id @default(autoincrement())
+  paymentId       Int
+  payment         Payment   @relation(fields: [paymentId], references: [id])
+
+  amount          Decimal   @db.Decimal(18,2)
+  reason          String?
+  providerTransId String?
+  resultCode      Int?
+  message         String?
+  refundedAt      DateTime?
+
+  createdAt       DateTime  @default(now())
+
+  @@index([paymentId])
 }
 
 // =================== Reviews & Wishlist ===================
