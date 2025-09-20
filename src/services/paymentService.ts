@@ -1,0 +1,292 @@
+// src/services/paymentService.ts
+import axios from "axios";
+import {
+  Prisma,
+  PaymentStatus,
+  PaymentMethod,
+  OrderStatus,
+} from "@prisma/client";
+import prisma from "../database/prismaClient";
+import momoEnv, {
+  buildCreateSignature,
+  buildQuerySignature,
+  verifyIpnSignature,
+} from "../utils/momo";
+
+/**
+ * Tạo 1 attempt MoMo (Collection Link) cho một Order
+ */
+export async function createAttemptMomo(
+  userId: number,
+  orderId: number,
+  opts?: {
+    orderInfo?: string;
+    extraData?: Record<string, any> | null;
+    autoCapture?: boolean;
+    lang?: "vi" | "en";
+  }
+) {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: {
+      id: true,
+      userId: true,
+      total: true,
+      status: true,
+      paymentSuccessId: true,
+    },
+  });
+  if (!order || order.userId !== userId) {
+    throw new Error("ORDER_NOT_FOUND_OR_FORBIDDEN");
+  }
+  if (order.status === OrderStatus.CANCELLED) {
+    throw new Error("ORDER_CANCELLED");
+  }
+  if (order.paymentSuccessId) {
+    throw new Error("ORDER_ALREADY_PAID");
+  }
+
+  const attempts = await prisma.payment.count({ where: { orderId } });
+  const attemptNo = attempts + 1;
+
+  const providerOrderId = `${
+    momoEnv.partnerCode
+  }-${orderId}-${attemptNo}-${Date.now()}`;
+  const providerRequestId = providerOrderId;
+
+  const extraDataBase64 = opts?.extraData
+    ? Buffer.from(JSON.stringify(opts.extraData)).toString("base64")
+    : "";
+
+  const payload = {
+    partnerCode: momoEnv.partnerCode,
+    accessKey: momoEnv.accessKey,
+    requestId: providerRequestId,
+    amount: String(order.total), // Decimal -> string
+    orderId: providerOrderId,
+    orderInfo: opts?.orderInfo ?? `Order #${orderId}`,
+    redirectUrl: momoEnv.redirectUrl,
+    ipnUrl: momoEnv.ipnUrl,
+    requestType: "payWithMethod",
+    autoCapture: opts?.autoCapture ?? true,
+    lang: opts?.lang ?? "vi",
+    extraData: extraDataBase64,
+  };
+
+  const { signature } = buildCreateSignature(payload as any);
+  const requestBody = {
+    partnerName: "Shop",
+    storeId: "ShopStore",
+    ...payload,
+    signature,
+  };
+
+  // 1) Ghi attempt trước (PENDING)
+  const created = await prisma.payment.create({
+    data: {
+      orderId,
+      attemptNo,
+      method: PaymentMethod.MOMO,
+      status: PaymentStatus.PENDING,
+      amount: new Prisma.Decimal(order.total),
+      providerOrderId,
+      providerRequestId,
+      extraData: extraDataBase64 || null,
+      extraDataJson: opts?.extraData ?? undefined,
+    },
+  });
+
+  // 2) Gọi MoMo /create với axios
+  const createUrl = momoEnv.endpoint + momoEnv.createPath;
+  const momoResp = await axios
+    .post<any>(createUrl, requestBody, {
+      headers: { "Content-Type": "application/json" },
+      timeout: 15000,
+    })
+    .then((r) => r.data)
+    .catch(async (err) => {
+      // Lưu message lỗi vào Payment để dễ debug
+      await prisma.payment.update({
+        where: { id: created.id },
+        data: {
+          resultMessage: String(
+            err?.response?.data?.message || err?.message || "REQUEST_ERROR"
+          ),
+        },
+      });
+      throw err;
+    });
+
+  // 3) Cập nhật kết quả tạo link
+  await prisma.payment.update({
+    where: { id: created.id },
+    data: {
+      resultCode: momoResp?.resultCode ?? null,
+      resultMessage: momoResp?.message ?? null,
+      payUrl: momoResp?.payUrl ?? momoResp?.deeplink ?? null,
+    },
+  });
+
+  return {
+    paymentId: created.id,
+    payUrl: momoResp?.payUrl ?? momoResp?.deeplink ?? null,
+    result: momoResp,
+  };
+}
+
+/**
+ * Xử lý IPN MoMo (verify chữ ký, cập nhật Payment/Order, log webhook)
+ * Trả về { ok: boolean, success?: boolean }
+ */
+export async function handleMomoIpn(rawBody: any) {
+  const verified = verifyIpnSignature(rawBody);
+
+  // Tìm payment theo requestId hoặc orderId do MoMo gửi lại
+  const payment = await prisma.payment.findFirst({
+    where: {
+      OR: [
+        { providerRequestId: String(rawBody?.requestId || "") },
+        { providerOrderId: String(rawBody?.orderId || "") },
+      ],
+    },
+    select: { id: true, orderId: true },
+  });
+
+  if (!verified || !payment) {
+    // Không ghi log nếu không map được payment (tuỳ chính sách, có thể ghi vào logging khác)
+    return { ok: false, code: "INVALID_SIGNATURE_OR_PAYMENT" };
+  }
+
+  // Log webhook (đã map đúng payment)
+  await prisma.paymentWebhook.create({
+    data: {
+      paymentId: payment.id,
+      headers: undefined,
+      bodyRaw: JSON.stringify(rawBody),
+      bodyJson: rawBody,
+      signature: rawBody.signature ?? null,
+      verified,
+      resultCode: Number(rawBody.resultCode) || null,
+      message: rawBody.message ?? null,
+      providerTransId: rawBody.transId ?? null,
+    },
+  });
+
+  const success = Number(rawBody.resultCode) === 0;
+  const authorized = Number(rawBody.resultCode) === 9000;
+
+  // Cập nhật trạng thái theo IPN
+  await prisma.$transaction(async (tx) => {
+    await tx.payment.update({
+      where: { id: payment.id },
+      data: {
+        status: success
+          ? PaymentStatus.SUCCEEDED
+          : authorized
+          ? PaymentStatus.AUTHORIZED
+          : PaymentStatus.FAILED,
+        providerTransId: rawBody.transId ?? null,
+        payType: rawBody.payType ?? null,
+        resultCode: Number(rawBody.resultCode) || null,
+        resultMessage: rawBody.message ?? null,
+        paidAt: success ? new Date() : null,
+        authorizedAt: authorized ? new Date() : undefined,
+      },
+    });
+
+    if (success) {
+      const ord = await tx.order.findUnique({
+        where: { id: payment.orderId },
+        select: { paymentSuccessId: true },
+      });
+
+      if (!ord?.paymentSuccessId) {
+        await tx.order.update({
+          where: { id: payment.orderId },
+          data: { status: OrderStatus.PAID, paymentSuccessId: payment.id },
+        });
+      } else {
+        await tx.order.update({
+          where: { id: payment.orderId },
+          data: { status: OrderStatus.PAID },
+        });
+      }
+    }
+  });
+
+  return { ok: true, success };
+}
+
+/**
+ * Gọi MoMo /query để đồng bộ trạng thái 1 payment
+ */
+export async function syncPaymentStatus(userId: number, paymentId: number) {
+  const pay = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    include: { order: { select: { id: true, userId: true } } },
+  });
+  if (!pay || pay.order.userId !== userId) throw new Error("PAYMENT_NOT_FOUND_OR_FORBIDDEN");
+  if (!pay.providerRequestId || !pay.providerOrderId) throw new Error("MISSING_PROVIDER_IDS");
+
+  const reqBody = {
+    partnerCode: momoEnv.partnerCode,
+    accessKey: momoEnv.accessKey,
+    requestId: pay.providerRequestId,
+    orderId: pay.providerOrderId,
+    lang: "vi",
+  };
+  const { signature } = buildQuerySignature(reqBody);
+
+  const url = momoEnv.endpoint + momoEnv.queryPath;
+
+  let momoResp: any;
+  try {
+    momoResp = (await axios.post(url, { ...reqBody, signature }, {
+      headers: { "Content-Type": "application/json" },
+      timeout: 15000,
+    })).data;
+  } catch (e: any) {
+    const data = e?.response?.data ?? e?.message ?? null;
+    const err: any = new Error("GATEWAY_ERROR");
+    err.data = data;
+    throw err;
+  }
+
+  const resultCode = Number(momoResp?.resultCode);
+  const success = resultCode === 0;
+  const authorized = resultCode === 9000;
+
+  await prisma.$transaction(async (tx) => {
+    const nextStatus =
+      success ? PaymentStatus.SUCCEEDED :
+      authorized ? PaymentStatus.AUTHORIZED :
+      pay.status;
+
+    await tx.payment.update({
+      where: { id: paymentId },
+      data: {
+        status: nextStatus,
+        providerTransId: momoResp?.transId ? String(momoResp.transId) : pay.providerTransId,
+        resultCode: Number.isFinite(resultCode) ? resultCode : pay.resultCode,
+        resultMessage: momoResp?.message ?? pay.resultMessage,
+        paidAt: success && !pay.paidAt ? new Date() : pay.paidAt,
+        authorizedAt: authorized && !pay.authorizedAt ? new Date() : pay.authorizedAt,
+      },
+    });
+
+    if (success) {
+      const ord = await tx.order.findUnique({
+        where: { id: pay.orderId },
+        select: { paymentSuccessId: true },
+      });
+      await tx.order.update({
+        where: { id: pay.orderId },
+        data: ord?.paymentSuccessId
+          ? { status: OrderStatus.PAID }
+          : { status: OrderStatus.PAID, paymentSuccessId: pay.id },
+      });
+    }
+  });
+
+  return { success: success || authorized, momoResp };
+}
