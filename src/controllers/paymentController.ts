@@ -2,7 +2,9 @@ import { Response } from "express";
 import { AuthenticatedRequest } from "../middleware/authMiddleware";
 import {
   createAttemptMomo,
+  getPaymentById,
   handleMomoIpn,
+  refundPayment,
   syncPaymentStatus,
 } from "../services/paymentService";
 
@@ -128,5 +130,55 @@ export const paymentSyncController = async (req: AuthenticatedRequest, res: Resp
 
     console.error("paymentSyncController SERVER_ERROR", err?.stack || err);
     return res.status(500).json({ code: "SERVER_ERROR" });
+  }
+};
+
+// GET /payment/:paymentId (protected)
+export const paymentGetOneController = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ code: "UNAUTHENTICATED" });
+
+    const paymentId = Number(req.params.paymentId);
+    if (!Number.isSafeInteger(paymentId) || paymentId <= 0) {
+      return res.status(400).json({ code: "INVALID_PAYMENT_ID" });
+    }
+
+    const data = await getPaymentById(userId, paymentId);
+    return res.status(200).json(data);
+
+  } catch (err: any) {
+    const code = err?.message || "SERVER_ERROR";
+    if (code === "PAYMENT_NOT_FOUND_OR_FORBIDDEN") {
+      return res.status(404).json({ code, message: "Không tìm thấy payment hoặc không thuộc về bạn" });
+    }
+    console.error("paymentGetOneController", err);
+    return res.status(500).json({ code: "SERVER_ERROR" });
+  }
+};
+
+export const paymentRefundController = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ code: "UNAUTHENTICATED" });
+
+    const paymentId = Number(req.params.paymentId);
+    if (!Number.isSafeInteger(paymentId) || paymentId <= 0) {
+      return res.status(400).json({ code: "INVALID_PAYMENT_ID" });
+    }
+
+    const { amount, reason } = req.body;
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ code: "INVALID_AMOUNT" });
+    }
+
+    const data = await refundPayment(userId, paymentId, amount, reason || null);
+    return res.status(200).json(data);
+  } catch (err: any) {
+    console.error("paymentRefundController", err);
+    return res.status(500).json({ code: err.message || "SERVER_ERROR" });
   }
 };

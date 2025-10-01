@@ -1,4 +1,3 @@
-// src/services/paymentService.ts
 import axios from "axios";
 import {
   Prisma,
@@ -289,4 +288,105 @@ export async function syncPaymentStatus(userId: number, paymentId: number) {
   });
 
   return { success: success || authorized, momoResp };
+}
+
+// === P1: Lấy chi tiết 1 payment attempt (check quyền sở hữu) ===
+export async function getPaymentById(userId: number, paymentId: number) {
+  const p = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    include: { order: { select: { id: true, userId: true } } },
+  });
+  if (!p || p.order.userId !== userId) {
+    throw new Error("PAYMENT_NOT_FOUND_OR_FORBIDDEN");
+  }
+
+  // Chuẩn hóa Decimal -> string để FE dễ hiển thị
+  return {
+    id: p.id,
+    orderId: p.orderId,
+    attemptNo: p.attemptNo,
+    method: p.method,
+    status: p.status,
+    amount: p.amount?.toString?.() ?? String(p.amount),
+    payUrl: p.payUrl,
+    providerOrderId: p.providerOrderId,
+    providerRequestId: p.providerRequestId,
+    providerTransId: p.providerTransId,
+    resultCode: p.resultCode,
+    resultMessage: p.resultMessage,
+    paidAt: p.paidAt,
+    authorizedAt: p.authorizedAt,
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
+  };
+}
+
+export async function refundPayment(
+  userId: number,
+  paymentId: number,
+  amount: number,
+  reason: string | null
+) {
+  const pay = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    include: { order: { select: { id: true, userId: true } } },
+  });
+  if (!pay || pay.order.userId !== userId) {
+    throw new Error("PAYMENT_NOT_FOUND_OR_FORBIDDEN");
+  }
+  if (pay.status !== PaymentStatus.SUCCEEDED) {
+    throw new Error("PAYMENT_NOT_SUCCEEDED");
+  }
+  if (!pay.providerTransId) {
+    throw new Error("MISSING_PROVIDER_TRANS_ID");
+  }
+
+  // Check tổng số tiền đã refund
+  const refunded = await prisma.paymentRefund.aggregate({
+    where: { paymentId },
+    _sum: { amount: true },
+  });
+  const refundedTotal = Number(refunded._sum.amount ?? 0);
+  if (refundedTotal + amount > Number(pay.amount)) {
+    throw new Error("REFUND_AMOUNT_EXCEEDS_PAYMENT");
+  }
+
+  // Build request tới MoMo
+  const requestId = `${pay.providerRequestId}-refund-${Date.now()}`;
+  const req = {
+    partnerCode: momoEnv.partnerCode,
+    accessKey: momoEnv.accessKey,
+    requestId,
+    orderId: pay.providerOrderId!,
+    amount,
+    transId: pay.providerTransId,
+    lang: "vi",
+    description: reason || "Refund",
+  };
+  const { signature } = buildQuerySignature(req);
+
+  const refundUrl = momoEnv.endpoint + momoEnv.refundPath;
+  const momoResp = await axios
+    .post<any>(refundUrl, { ...req, signature }, {
+      headers: { "Content-Type": "application/json" },
+      timeout: 15000,
+    })
+    .then((r) => r.data);
+
+  const success = Number(momoResp?.resultCode) === 0;
+
+  // Save refund log
+  const refund = await prisma.paymentRefund.create({
+    data: {
+      paymentId: pay.id,
+      amount,
+      reason,
+      providerTransId: String(momoResp?.transId ?? ""),
+      resultCode: Number(momoResp?.resultCode) || null,
+      message: momoResp?.message ?? null,
+      refundedAt: success ? new Date() : null,
+    },
+  });
+
+  return { success, momoResp, refund };
 }

@@ -7,6 +7,7 @@ const momoEnv = {
   endpoint: process.env.MOMO_ENDPOINT || "https://test-payment.momo.vn",
   createPath: process.env.MOMO_CREATE_PATH || "/v2/gateway/api/create",
   queryPath: process.env.MOMO_QUERY_PATH || "/v2/gateway/api/query",
+  refundPath: process.env.MOMO_REFUND_PATH || "/v2/gateway/api/refund",
   redirectUrl: process.env.MOMO_REDIRECT_URL!,
   ipnUrl: process.env.MOMO_IPN_URL!,
 };
