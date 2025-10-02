@@ -4,7 +4,7 @@ import { orderMomoRetryController, orderPaymentsListController } from "../contro
 
 const router = Router();
 
-router.get("/orders/:orderId/payments", authenticateJWT, orderPaymentsListController);
-router.post("/orders/:orderId/payments/momo/retry", authenticateJWT, orderMomoRetryController);
+router.get("/:orderId/payments", authenticateJWT, orderPaymentsListController);
+router.post("/:orderId/payments/momo/retry", authenticateJWT, orderMomoRetryController);
 
 export default router;
