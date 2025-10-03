@@ -200,6 +200,17 @@ export async function handleMomoIpn(rawBody: any) {
       });
 
       if (!ord?.paymentSuccessId) {
+        const orderCoupons = await tx.orderCoupon.findMany({
+          where: { orderId: payment.orderId },
+          select: { couponId: true },
+        });
+        for (const oc of orderCoupons) {
+          await tx.coupon.update({
+            where: { id: oc.couponId },
+            data: { usageCount: { increment: 1 } },
+          });
+        }
+
         await tx.order.update({
           where: { id: payment.orderId },
           data: { status: OrderStatus.PAID, paymentSuccessId: payment.id },
@@ -224,8 +235,10 @@ export async function syncPaymentStatus(userId: number, paymentId: number) {
     where: { id: paymentId },
     include: { order: { select: { id: true, userId: true } } },
   });
-  if (!pay || pay.order.userId !== userId) throw new Error("PAYMENT_NOT_FOUND_OR_FORBIDDEN");
-  if (!pay.providerRequestId || !pay.providerOrderId) throw new Error("MISSING_PROVIDER_IDS");
+  if (!pay || pay.order.userId !== userId)
+    throw new Error("PAYMENT_NOT_FOUND_OR_FORBIDDEN");
+  if (!pay.providerRequestId || !pay.providerOrderId)
+    throw new Error("MISSING_PROVIDER_IDS");
 
   const reqBody = {
     partnerCode: momoEnv.partnerCode,
@@ -240,10 +253,16 @@ export async function syncPaymentStatus(userId: number, paymentId: number) {
 
   let momoResp: any;
   try {
-    momoResp = (await axios.post(url, { ...reqBody, signature }, {
-      headers: { "Content-Type": "application/json" },
-      timeout: 15000,
-    })).data;
+    momoResp = (
+      await axios.post(
+        url,
+        { ...reqBody, signature },
+        {
+          headers: { "Content-Type": "application/json" },
+          timeout: 15000,
+        }
+      )
+    ).data;
   } catch (e: any) {
     const data = e?.response?.data ?? e?.message ?? null;
     const err: any = new Error("GATEWAY_ERROR");
@@ -256,20 +275,24 @@ export async function syncPaymentStatus(userId: number, paymentId: number) {
   const authorized = resultCode === 9000;
 
   await prisma.$transaction(async (tx) => {
-    const nextStatus =
-      success ? PaymentStatus.SUCCEEDED :
-      authorized ? PaymentStatus.AUTHORIZED :
-      pay.status;
+    const nextStatus = success
+      ? PaymentStatus.SUCCEEDED
+      : authorized
+      ? PaymentStatus.AUTHORIZED
+      : pay.status;
 
     await tx.payment.update({
       where: { id: paymentId },
       data: {
         status: nextStatus,
-        providerTransId: momoResp?.transId ? String(momoResp.transId) : pay.providerTransId,
+        providerTransId: momoResp?.transId
+          ? String(momoResp.transId)
+          : pay.providerTransId,
         resultCode: Number.isFinite(resultCode) ? resultCode : pay.resultCode,
         resultMessage: momoResp?.message ?? pay.resultMessage,
         paidAt: success && !pay.paidAt ? new Date() : pay.paidAt,
-        authorizedAt: authorized && !pay.authorizedAt ? new Date() : pay.authorizedAt,
+        authorizedAt:
+          authorized && !pay.authorizedAt ? new Date() : pay.authorizedAt,
       },
     });
 
@@ -278,12 +301,27 @@ export async function syncPaymentStatus(userId: number, paymentId: number) {
         where: { id: pay.orderId },
         select: { paymentSuccessId: true },
       });
-      await tx.order.update({
-        where: { id: pay.orderId },
-        data: ord?.paymentSuccessId
-          ? { status: OrderStatus.PAID }
-          : { status: OrderStatus.PAID, paymentSuccessId: pay.id },
-      });
+      if (!ord?.paymentSuccessId) {
+        const orderCoupons = await tx.orderCoupon.findMany({
+          where: { orderId: pay.orderId },
+          select: { couponId: true },
+        });
+        for (const oc of orderCoupons) {
+          await tx.coupon.update({
+            where: { id: oc.couponId },
+            data: { usageCount: { increment: 1 } },
+          });
+        }
+        await tx.order.update({
+          where: { id: pay.orderId },
+          data: { status: OrderStatus.PAID, paymentSuccessId: pay.id },
+        });
+      } else {
+        await tx.order.update({
+          where: { id: pay.orderId },
+          data: { status: OrderStatus.PAID },
+        });
+      }
     }
   });
 
@@ -367,10 +405,14 @@ export async function refundPayment(
 
   const refundUrl = momoEnv.endpoint + momoEnv.refundPath;
   const momoResp = await axios
-    .post<any>(refundUrl, { ...req, signature }, {
-      headers: { "Content-Type": "application/json" },
-      timeout: 15000,
-    })
+    .post<any>(
+      refundUrl,
+      { ...req, signature },
+      {
+        headers: { "Content-Type": "application/json" },
+        timeout: 15000,
+      }
+    )
     .then((r) => r.data);
 
   const success = Number(momoResp?.resultCode) === 0;

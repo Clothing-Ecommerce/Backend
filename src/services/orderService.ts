@@ -196,10 +196,7 @@ export async function placeOrderFromCart(
             appliedValue: new Prisma.Decimal(cart.summary.promoDiscount),
           },
         });
-        await tx.coupon.update({
-          where: { id: matched.couponId },
-          data: { usageCount: { increment: 1 } },
-        });
+        
         appliedPromo = {
           code: matched.coupon.code,
           discount: cart.summary.promoDiscount,

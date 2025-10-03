@@ -22,7 +22,4 @@ router.post("/:paymentId/sync", authenticateJWT, paymentSyncController);
 router.get("/:paymentId", authenticateJWT, paymentGetOneController);
 router.post("/:paymentId/refund", authenticateJWT, paymentRefundController);
 
-router.get("/orders/:orderId/payments", authenticateJWT, orderPaymentsListController);
-router.post("/orders/:orderId/payments/momo/retry", authenticateJWT, orderMomoRetryController);
-
 export default router;
