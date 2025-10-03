@@ -4,8 +4,10 @@ import { orderMomoRetryController, orderPaymentsListController, placeOrderContro
 
 const router = Router();
 
-router.get("/:orderId/payments", authenticateJWT, orderPaymentsListController);
-router.post("/:orderId/payments/momo/retry", authenticateJWT, orderMomoRetryController);
+router.use(authenticateJWT);
+
+router.get("/:orderId/payments", orderPaymentsListController);
+router.post("/:orderId/payments/momo/retry", orderMomoRetryController);
 router.post("/checkout", placeOrderController);
 
 export default router;
