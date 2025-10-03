@@ -314,6 +314,8 @@ model Cart {
   items     CartItem[]                               // các dòng giỏ hàng
   coupons   CartCoupon[]                             // các mã áp vào giỏ (thiết kế hỗ trợ nhiều mã, thường dùng 1)
 
+  selectedPaymentMethod PaymentMethod @default(COD)  // phương thức thanh toán được chọn trong checkout
+
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 }
