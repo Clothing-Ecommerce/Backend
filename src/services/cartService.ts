@@ -1,4 +1,4 @@
-import { Prisma, PriceType } from "@prisma/client";
+import { Prisma, PriceType, PaymentMethod } from "@prisma/client";
 import prisma from "../database/prismaClient";
 
 /** =========================
@@ -41,6 +41,20 @@ export interface CartResponse {
   items: CartItemDTO[];
   summary: CartSummary;
   appliedPromo?: AppliedPromo; // BE sẽ trả khi đang có mã áp dụng
+  selectedPaymentMethod?: PaymentMethod;
+}
+
+export interface PaymentMethodOption {
+  id: PaymentMethod;
+  name: string;
+  description?: string;
+  icon?: string;
+  disabled?: boolean;
+}
+
+export interface PaymentMethodResponse {
+  selected: PaymentMethod;
+  options: PaymentMethodOption[];
 }
 
 /** =========================
@@ -76,6 +90,23 @@ const decToNum = (d?: Prisma.Decimal | null): number => {
 };
 
 const roundVND = (n: number) => Math.round(n);
+
+const DEFAULT_PAYMENT_METHOD = PaymentMethod.COD;
+
+const CART_PAYMENT_METHOD_OPTIONS: PaymentMethodOption[] = [
+  {
+    id: PaymentMethod.MOMO,
+    name: "MoMo E-Wallet",
+    description: "Pay securely with MoMo",
+    icon: "momo",
+  },
+  {
+    id: PaymentMethod.COD,
+    name: "Cash on Delivery",
+    description: "Pay when you receive",
+    icon: "cod",
+  },
+];
 
 /**
  * Pick active LIST and SALE price for a variant at given time.
@@ -548,6 +579,50 @@ export async function removeCartItem(
   await prisma.cartItem.delete({ where: { id: itemId } });
 }
 
+function buildPaymentMethodResponse(
+  selected: PaymentMethod
+): PaymentMethodResponse {
+  return {
+    selected,
+    options: CART_PAYMENT_METHOD_OPTIONS.map((option) => ({ ...option })),
+  };
+}
+
+export async function getPaymentMethods(
+  userId: number
+): Promise<PaymentMethodResponse> {
+  const cart = await prisma.cart.findUnique({
+    where: { userId },
+    select: { selectedPaymentMethod: true },
+  });
+
+  const selected = cart?.selectedPaymentMethod ?? DEFAULT_PAYMENT_METHOD;
+  return buildPaymentMethodResponse(selected);
+}
+
+export async function updatePaymentMethod(
+  userId: number,
+  method: PaymentMethod
+): Promise<PaymentMethodResponse> {
+  const supported = CART_PAYMENT_METHOD_OPTIONS.some((option) => option.id === method);
+  if (!supported) {
+    throw new ServiceError(
+      "UNSUPPORTED_PAYMENT_METHOD",
+      "Phương thức thanh toán này chưa được hỗ trợ",
+      400
+    );
+  }
+
+  const cart = await prisma.cart.upsert({
+    where: { userId },
+    update: { selectedPaymentMethod: method },
+    create: { userId, selectedPaymentMethod: method },
+    select: { selectedPaymentMethod: true },
+  });
+
+  return buildPaymentMethodResponse(cart.selectedPaymentMethod);
+}
+
 /** Build the full cart response with items and summary (shipping/tax rules).
  *  LƯU Ý: Cho phép truyền 'db' (tx hoặc prisma) để dùng trong transaction.
  */
@@ -581,6 +656,8 @@ export async function computeCart(
     },
   });
 
+  const selectedPaymentMethod = cart?.selectedPaymentMethod ?? DEFAULT_PAYMENT_METHOD;
+
   if (!cart || cart.items.length === 0) {
     const emptySummary: CartSummary = {
       subtotal: 0,
@@ -590,7 +667,11 @@ export async function computeCart(
       tax: 0,
       total: 0,
     };
-    return { items: [], summary: emptySummary };
+    return {
+      items: [],
+      summary: emptySummary,
+      selectedPaymentMethod,
+    };
   }
 
   const items: CartItemDTO[] = [];
@@ -656,7 +737,14 @@ export async function computeCart(
     tax: roundVND(tax),
     total: roundVND(total),
   };
-  return appliedPromo ? { items, summary, appliedPromo } : { items, summary };
+
+  const baseResponse: CartResponse = {
+    items,
+    summary,
+    selectedPaymentMethod,
+  };
+
+  return appliedPromo ? { ...baseResponse, appliedPromo } : baseResponse;
 }
 
 export async function getCartCounts(userId: number) {

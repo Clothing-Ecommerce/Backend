@@ -11,7 +11,10 @@ import {
   applyPromoToCart,
   removePromoFromCart,
   getCartCounts,
+  getPaymentMethods,
+  updatePaymentMethod,
 } from "../services/cartService";
+import { PaymentMethod } from ".prisma/client";
 
 /** Helper: get userId from auth and send 401 if missing */
 const getUserId = (req: AuthenticatedRequest, res: Response): number | null => {
@@ -173,5 +176,61 @@ export const getCartCountController = async (req: AuthenticatedRequest, res: Res
   } catch (err) {
     console.error("Error get cart counts:", err);
     return res.status(500).json({ code: "INTERNAL_ERROR", message: "Lỗi máy chủ khi lấy số lượng giỏ" });
+  }
+};
+
+export const getPaymentMethodsController = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  const userId = getUserId(req, res);
+  if (userId === null) return;
+  try {
+    const data = await getPaymentMethods(userId);
+    return res.status(200).json(data);
+  } catch (err) {
+    console.error("Error getting cart payment methods:", err);
+    return res
+      .status(500)
+      .json({ code: "INTERNAL_ERROR", message: "Lỗi máy chủ khi lấy phương thức thanh toán" });
+  }
+};
+
+export const updatePaymentMethodController = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  const userId = getUserId(req, res);
+  if (userId === null) return;
+
+  const rawMethod = String(req.body?.method ?? "").trim();
+  if (!rawMethod) {
+    return res
+      .status(400)
+      .json({ code: "INVALID_INPUT", message: "Thiếu phương thức thanh toán" });
+  }
+
+  const normalized = rawMethod.toUpperCase();
+  const method = Object.values(PaymentMethod).find((value) => value === normalized);
+
+  if (!method) {
+    return res
+      .status(400)
+      .json({ code: "INVALID_PAYMENT_METHOD", message: "Phương thức thanh toán không hợp lệ" });
+  }
+
+  try {
+    const data = await updatePaymentMethod(userId, method);
+    return res.status(200).json(data);
+  } catch (err: any) {
+    console.error("Error updating cart payment method:", err);
+    if (err instanceof ServiceError) {
+      return res
+        .status(err.httpStatus)
+        .json({ code: err.code, message: err.message, data: err.data });
+    }
+    return res
+      .status(500)
+      .json({ code: "INTERNAL_ERROR", message: "Lỗi máy chủ khi cập nhật phương thức thanh toán" });
   }
 };

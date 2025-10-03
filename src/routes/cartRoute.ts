@@ -5,9 +5,11 @@ import {
   getAvailablePromosController,
   getCartCountController,
   getCartItemsController,
+  getPaymentMethodsController,
   removeCartItemController,
   removePromoController,
   updateCartItemController,
+  updatePaymentMethodController,
 } from "../controllers/cartController";
 import { authenticateJWT } from "../middleware/authMiddleware";
 
@@ -33,5 +35,8 @@ router
   .delete(removePromoController);
 
 router.get("/count", getCartCountController);
+
+router.get("/payment-methods", getPaymentMethodsController);
+router.patch("/payment-method", updatePaymentMethodController);
 
 export default router;
