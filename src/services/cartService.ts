@@ -114,8 +114,12 @@ const CART_PAYMENT_METHOD_OPTIONS: PaymentMethodOption[] = [
  *  - list: Price(type=LIST) active → variant.price → product.basePrice
  *  - unit (used for charge): SALE active → variant.price → list
  */
-async function getActivePriceForVariant(variantId: number, now = new Date()) {
-  const variant = await prisma.productVariant.findUnique({
+async function getActivePriceForVariant(
+  variantId: number,
+  now = new Date(),
+  db: Prisma.TransactionClient | typeof prisma = prisma
+) {
+  const variant = await db.productVariant.findUnique({
     where: { id: variantId },
     include: {
       product: true,
@@ -332,7 +336,11 @@ export async function applyPromoToCart(
 
     let subtotal = 0;
     for (const item of cart.items) {
-      const { unitPrice } = await getActivePriceForVariant(item.variantId);
+      const { unitPrice } = await getActivePriceForVariant(
+        item.variantId,
+        new Date(),
+        tx
+      );
       subtotal += unitPrice * item.quantity;
     }
 
@@ -406,9 +414,13 @@ export async function addItemToCart(
   variantId: number,
   quantity: number
 ): Promise<void> {
-  await prisma.$transaction(async (tx) => {
-    // Validate variant + price + stock
-    const { variant } = await getActivePriceForVariant(variantId);
+    await prisma.$transaction(async (tx) => {
+        // Validate variant + price + stock
+        const { variant } = await getActivePriceForVariant(
+          variantId,
+          new Date(),
+          tx
+        );
     if (!variant.isActive)
       throw new ServiceError(
         "VARIANT_INACTIVE",
@@ -512,8 +524,11 @@ export async function updateCartItemVariant(
       );
 
     const { variant: newVariant } = await getActivePriceForVariant(
-      newVariantId
-    );
+        newVariantId,
+        new Date(),
+        tx
+      );
+
     if (!newVariant.isActive)
       throw new ServiceError(
         "VARIANT_INACTIVE",
@@ -681,7 +696,9 @@ export async function computeCart(
   // Compute prices for each item
   for (const item of cart.items) {
     const { listPrice, unitPrice } = await getActivePriceForVariant(
-      item.variantId
+      item.variantId,
+      new Date(),
+      db
     );
     const dto = mapCartItem(item, listPrice, unitPrice);
     items.push(dto);
