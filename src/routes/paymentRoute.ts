@@ -7,7 +7,6 @@ import {
   paymentSyncController,
   paymentRefundController,
 } from "../controllers/paymentController";
-import { orderMomoRetryController, orderPaymentsListController } from "../controllers/orderController";
 
 const router = Router();
 
