@@ -92,6 +92,8 @@ model User {
   reviews      Review[]                                   // 1-N: đánh giá
   wishlists    WishlistItem[]                             // 1-N: wishlist
 
+  statusEvents OrderStatusHistory[]                       // các sự kiện thay đổi trạng thái do user thực hiện
+
   createdAt    DateTime    @default(now())                // thời điểm tạo
   updatedAt    DateTime    @updatedAt                     // tự động cập nhật
 }
@@ -363,12 +365,28 @@ model Order {
 
   coupons       OrderCoupon[]                               // mã áp vào order (snapshot từ cart)
 
+  statusHistory OrderStatusHistory[]                        // lịch sử thay đổi trạng thái
+
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
   @@index([userId])
   @@index([status])
   @@index([createdAt])
+}
+
+model OrderStatusHistory {
+  id        Int         @id @default(autoincrement())
+  orderId   Int
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    OrderStatus
+  note      String?
+  userId   Int?
+  user     User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt DateTime    @default(now())
+
+  @@index([orderId])
+  @@index([userId])
 }
 
 model OrderItem {
