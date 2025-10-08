@@ -399,28 +399,57 @@ export async function removePromoFromCart(
  */
 async function getOrCreateCart(
   userId: number,
-  tx: Prisma.TransactionClient = prisma
+  db: Prisma.TransactionClient | typeof prisma = prisma
 ) {
-  let cart = await tx.cart.findUnique({ where: { userId } });
+  let cart = await db.cart.findUnique({ where: { userId } });
   if (!cart) {
-    cart = await tx.cart.create({ data: { userId } });
+    cart = await db.cart.create({ data: { userId } });
   }
   return cart;
 }
 
-/** Add (or increment) a variant in the user's cart. */
-export async function addItemToCart(
+export interface CartVariantInput {
+  variantId: number;
+  quantity: number;
+}
+
+async function addItemsToCartInternal(
   userId: number,
-  variantId: number,
-  quantity: number
-): Promise<void> {
-    await prisma.$transaction(async (tx) => {
-        // Validate variant + price + stock
-        const { variant } = await getActivePriceForVariant(
-          variantId,
-          new Date(),
-          tx
-        );
+  items: CartVariantInput[],
+  tx: Prisma.TransactionClient
+) {
+  if (!items.length) {
+    throw new ServiceError(
+      "NO_ITEMS",
+      "Không có sản phẩm nào để thêm vào giỏ",
+      400
+    );
+  }
+
+  const cart = await getOrCreateCart(userId, tx);
+  const now = new Date();
+
+  for (const item of items) {
+    if (!Number.isInteger(item.variantId) || item.variantId <= 0) {
+      throw new ServiceError(
+        "INVALID_VARIANT",
+        "Biến thể sản phẩm không hợp lệ",
+        400
+      );
+    }
+    if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+      throw new ServiceError(
+        "INVALID_QUANTITY",
+        "Số lượng phải lớn hơn 0",
+        400
+      );
+    }
+
+    const { variant } = await getActivePriceForVariant(
+      item.variantId,
+      now,
+      tx
+    );
     if (!variant.isActive)
       throw new ServiceError(
         "VARIANT_INACTIVE",
@@ -430,18 +459,16 @@ export async function addItemToCart(
     if (variant.stock <= 0)
       throw new ServiceError("OUT_OF_STOCK", "Sản phẩm đã hết hàng", 409);
 
-    const cart = await getOrCreateCart(userId, tx);
-
     const existing = await tx.cartItem.findUnique({
-      where: { cartId_variantId: { cartId: cart.id, variantId } },
+      where: { cartId_variantId: { cartId: cart.id, variantId: item.variantId } },
     });
 
     const newQty = Math.min(
-      (existing?.quantity ?? 0) + quantity,
+      (existing?.quantity ?? 0) + item.quantity,
       variant.stock
     );
+
     if (newQty <= (existing?.quantity ?? 0)) {
-      // no room to add more
       throw new ServiceError(
         "QUANTITY_EXCEEDS_STOCK",
         `Chỉ còn ${variant.stock} sản phẩm`,
@@ -452,19 +479,67 @@ export async function addItemToCart(
 
     if (existing) {
       await tx.cartItem.update({
-        where: { cartId_variantId: { cartId: cart.id, variantId } },
+        where: { cartId_variantId: { cartId: cart.id, variantId: item.variantId } },
         data: { quantity: newQty },
       });
     } else {
       await tx.cartItem.create({
         data: {
           cartId: cart.id,
-          variantId,
-          quantity: Math.min(quantity, variant.stock),
+          variantId: item.variantId,
+          quantity: Math.min(item.quantity, variant.stock),
         },
       });
     }
-  });
+  }
+}
+
+/** Add (or increment) a variant in the user's cart. */
+export async function addItemToCart(
+  userId: number,
+  variantId: number,
+  quantity: number
+): Promise<void> {
+  await prisma.$transaction((tx) =>
+    addItemsToCartInternal(userId, [{ variantId, quantity }], tx)
+  );
+}
+
+export async function addMultipleItemsToCart(
+  userId: number,
+  items: CartVariantInput[]
+): Promise<void> {
+  const aggregated = new Map<number, number>();
+
+  for (const item of items) {
+    const variantId = Number(item.variantId);
+    const quantity = Number(item.quantity);
+
+    if (!Number.isInteger(variantId) || variantId <= 0) {
+      throw new ServiceError(
+        "INVALID_VARIANT",
+        "Biến thể sản phẩm không hợp lệ",
+        400
+      );
+    }
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw new ServiceError(
+        "INVALID_QUANTITY",
+        "Số lượng phải lớn hơn 0",
+        400
+      );
+    }
+
+    aggregated.set(variantId, (aggregated.get(variantId) ?? 0) + quantity);
+  }
+
+  const normalized = Array.from(aggregated.entries()).map(
+    ([variantId, quantity]) => ({ variantId, quantity })
+  );
+
+  await prisma.$transaction((tx) =>
+    addItemsToCartInternal(userId, normalized, tx)
+  );
 }
 
 /** Update quantity for a cart item. Clamp by stock; 0 => delete. */
