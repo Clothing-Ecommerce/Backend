@@ -1,11 +1,16 @@
 import { Response } from "express";
 import { AuthenticatedRequest } from "../middleware/authMiddleware";
 import {
+  cancelOrder,
+  getOrderDetail,
   listPaymentsOfOrder,
+  listUserOrders,
   placeOrderFromCart,
+  reorderOrder,
   retryMomoPayment,
+  type ListOrdersOptions,
 } from "../services/orderService";
-import { PaymentMethod } from ".prisma/client";
+import { OrderStatus, PaymentMethod } from ".prisma/client";
 import { ServiceError } from "../services/cartService";
 
 const getUserId = (req: AuthenticatedRequest, res: Response): number | null => {
@@ -15,6 +20,76 @@ const getUserId = (req: AuthenticatedRequest, res: Response): number | null => {
     return null;
   }
   return userId;
+};
+
+const parseNumericQuery = (value: unknown): number | undefined => {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const parseDateQuery = (value: unknown): Date | undefined => {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+};
+
+const parseStatusQuery = (value: unknown): OrderStatus[] | undefined => {
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+    ? value.split(",")
+    : [];
+
+  const normalized = rawValues
+    .map((status) =>
+      typeof status === "string" ? status.trim().toUpperCase() : ""
+    )
+    .filter((status): status is string => status.length > 0)
+    .map((status) => status as OrderStatus)
+    .filter((status) =>
+      (Object.values(OrderStatus) as string[]).includes(status)
+    );
+
+  if (!normalized.length) return undefined;
+  return Array.from(new Set(normalized)) as OrderStatus[];
+};
+
+export const listOrdersController = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  const userId = getUserId(req, res);
+  if (userId === null) return;
+
+  const options: ListOrdersOptions = {};
+
+  const page = parseNumericQuery(req.query.page);
+  if (page !== undefined) options.page = page;
+
+  const pageSize = parseNumericQuery(req.query.pageSize ?? req.query.limit);
+  if (pageSize !== undefined) options.pageSize = pageSize;
+
+  const statuses = parseStatusQuery(req.query.status);
+  if (statuses) options.statuses = statuses;
+
+  const from = parseDateQuery(req.query.from ?? req.query.start);
+  if (from) options.from = from;
+
+  const to = parseDateQuery(req.query.to ?? req.query.end);
+  if (to) options.to = to;
+
+  try {
+    const result = await listUserOrders(userId, options);
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("listOrdersController", err);
+    return res
+      .status(500)
+      .json({ code: "SERVER_ERROR", message: "Không thể tải danh sách đơn hàng" });
+  }
 };
 
 export const placeOrderController = async (req: AuthenticatedRequest, res: Response) => {
@@ -80,6 +155,87 @@ export const placeOrderController = async (req: AuthenticatedRequest, res: Respo
     return res
       .status(500)
       .json({ code: "INTERNAL_ERROR", message: "Lỗi máy chủ khi tạo đơn hàng" });
+  }
+};
+
+export const getOrderDetailController = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  const userId = getUserId(req, res);
+  if (userId === null) return;
+
+  const orderId = Number(req.params.orderId);
+  if (!Number.isSafeInteger(orderId) || orderId <= 0) {
+    return res.status(400).json({ code: "INVALID_ORDER_ID" });
+  }
+
+  try {
+    const order = await getOrderDetail(userId, orderId);
+    return res.status(200).json(order);
+  } catch (err: any) {
+    if (err instanceof ServiceError) {
+      return res
+        .status(err.httpStatus)
+        .json({ code: err.code, message: err.message, data: err.data });
+    }
+    console.error("getOrderDetailController", err);
+    return res.status(500).json({ code: "SERVER_ERROR" });
+  }
+};
+
+export const cancelOrderController = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  const userId = getUserId(req, res);
+  if (userId === null) return;
+
+  const orderId = Number(req.params.orderId);
+  if (!Number.isSafeInteger(orderId) || orderId <= 0) {
+    return res.status(400).json({ code: "INVALID_ORDER_ID" });
+  }
+
+  const reason =
+    typeof req.body?.reason === "string" ? req.body.reason : undefined;
+
+  try {
+    const order = await cancelOrder(userId, orderId, reason);
+    return res.status(200).json(order);
+  } catch (err: any) {
+    if (err instanceof ServiceError) {
+      return res
+        .status(err.httpStatus)
+        .json({ code: err.code, message: err.message, data: err.data });
+    }
+    console.error("cancelOrderController", err);
+    return res.status(500).json({ code: "SERVER_ERROR" });
+  }
+};
+
+export const reorderOrderController = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  const userId = getUserId(req, res);
+  if (userId === null) return;
+
+  const orderId = Number(req.params.orderId);
+  if (!Number.isSafeInteger(orderId) || orderId <= 0) {
+    return res.status(400).json({ code: "INVALID_ORDER_ID" });
+  }
+
+  try {
+    const result = await reorderOrder(userId, orderId);
+    return res.status(200).json(result);
+  } catch (err: any) {
+    if (err instanceof ServiceError) {
+      return res
+        .status(err.httpStatus)
+        .json({ code: err.code, message: err.message, data: err.data });
+    }
+    console.error("reorderOrderController", err);
+    return res.status(500).json({ code: "SERVER_ERROR" });
   }
 };
 
