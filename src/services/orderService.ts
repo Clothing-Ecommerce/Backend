@@ -125,6 +125,8 @@ export interface ListOrdersResult {
     pageSize: number;
     totalItems: number;
     totalPages: number;
+    previousLink: string | null;
+    nextLink: string | null;
   };
 }
 
@@ -645,6 +647,8 @@ export async function listUserOrders(
       pageSize,
       totalItems,
       totalPages,
+      previousLink: null,
+      nextLink: null,
     },
   };
 }

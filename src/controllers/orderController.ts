@@ -83,7 +83,30 @@ export const listOrdersController = async (
 
   try {
     const result = await listUserOrders(userId, options);
-    return res.status(200).json(result);
+    const { pagination } = result;
+    const { page, pageSize, totalPages } = pagination;
+
+    const buildPageLink = (targetPage: number): string => {
+      const host = req.get("host");
+      const origin = `${req.protocol}://${host ?? "localhost"}`;
+      const url = new URL(req.originalUrl, origin);
+      url.searchParams.set("page", String(targetPage));
+      url.searchParams.set("pageSize", String(pageSize));
+      return host ? url.toString() : `${url.pathname}${url.search}`;
+    };
+
+    const hasPages = totalPages > 0;
+    const previousLink = hasPages && page > 1 ? buildPageLink(page - 1) : null;
+    const nextLink = hasPages && page < totalPages ? buildPageLink(page + 1) : null;
+
+    return res.status(200).json({
+      ...result,
+      pagination: {
+        ...pagination,
+        previousLink,
+        nextLink,
+      },
+    });
   } catch (err) {
     console.error("listOrdersController", err);
     return res
