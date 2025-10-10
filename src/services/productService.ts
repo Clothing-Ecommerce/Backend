@@ -357,7 +357,17 @@ export async function getProductById(id: number) {
           },
         },
       },
-      reviews: true,
+      reviews: {
+        include: {
+          user: {
+            select: {
+              id: true,
+              username: true,
+              avatar: true,
+            },
+          },
+        },
+      },
     },
   });
 
