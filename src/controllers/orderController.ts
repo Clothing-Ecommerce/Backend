@@ -289,13 +289,6 @@ export const createOrderItemReviewController = async (
       ? Number(ratingRaw)
       : Number.NaN;
 
-  const title =
-    typeof req.body?.title === "string"
-      ? req.body.title
-      : typeof req.body?.headline === "string"
-      ? req.body.headline
-      : undefined;
-
   const content =
     typeof req.body?.content === "string"
       ? req.body.content
@@ -310,7 +303,6 @@ export const createOrderItemReviewController = async (
   try {
     const review = await createOrderItemReview(userId, orderId, orderItemId, {
       rating,
-      title,
       content,
       media,
     });

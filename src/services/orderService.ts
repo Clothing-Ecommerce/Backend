@@ -171,7 +171,6 @@ export interface ReviewDto {
   productId: number;
   orderItemId: number;
   rating: number;
-  title: string | null;
   content: string | null;
   isPublished: boolean;
   createdAt: string;
@@ -192,12 +191,10 @@ export interface ReviewMediaInput {
 
 export interface CreateReviewInput {
   rating: number;
-  title?: string | null;
   content?: string | null;
   media?: ReviewMediaInput[];
 }
 
-const REVIEW_TITLE_MAX_LENGTH = 100;
 const REVIEW_CONTENT_MAX_LENGTH = 500;
 const REVIEW_MAX_FILES = 5;
 const REVIEW_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
@@ -296,7 +293,6 @@ const mapReview = (review: ReviewWithMedia): ReviewDto => ({
   productId: review.productId,
   orderItemId: review.orderItemId,
   rating: review.rating,
-  title: review.title ?? null,
   content: review.content ?? null,
   isPublished: review.isPublished,
   createdAt: review.createdAt.toISOString(),
@@ -1004,15 +1000,6 @@ export async function createOrderItemReview(
     );
   }
 
-  const rawTitle = typeof input.title === "string" ? input.title : null;
-  if (rawTitle && rawTitle.trim().length > REVIEW_TITLE_MAX_LENGTH) {
-    throw new ServiceError(
-      "REVIEW_TITLE_TOO_LONG",
-      `Tiêu đề tối đa ${REVIEW_TITLE_MAX_LENGTH} ký tự`
-    );
-  }
-  const title = toNullableString(rawTitle);
-
   const rawContent =
     typeof input.content === "string" ? input.content : undefined;
   if (rawContent && rawContent.trim().length > REVIEW_CONTENT_MAX_LENGTH) {
@@ -1085,7 +1072,6 @@ export async function createOrderItemReview(
         userId,
         orderItemId: item.id,
         rating,
-        title,
         content,
       },
     });
