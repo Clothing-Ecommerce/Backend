@@ -552,7 +552,6 @@ model Review {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  @@unique([productId, userId])                        // 1 user 1 review / product
   @@index([productId])
   @@index([userId])
 }
