@@ -1,4 +1,9 @@
-import { OrderStatus, PaymentMethod, Prisma } from "@prisma/client";
+import {
+  OrderStatus,
+  PaymentMethod,
+  Prisma,
+  ReviewMediaType,
+} from "@prisma/client";
 import prisma from "../database/prismaClient";
 import {
   CartResponse,
@@ -16,6 +21,19 @@ const dec = (value: Prisma.Decimal | number) => {
   if (typeof anyVal === "number") return anyVal;
   if (typeof anyVal?.toNumber === "function") return anyVal.toNumber();
   return Number(anyVal);
+};
+
+const toNullableString = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+};
+
+const toNullableNumber = (value: unknown): number | null => {
+  if (value == null) return null;
+  const numberValue =
+    typeof value === "number" ? value : Number.parseFloat(String(value));
+  return Number.isFinite(numberValue) ? numberValue : null;
 };
 
 const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
@@ -135,6 +153,61 @@ export interface ReorderResult {
   addedItems: { variantId: number; quantity: number }[];
 }
 
+export interface ReviewMediaDto {
+  id: number;
+  type: ReviewMediaType;
+  url: string;
+  thumbnailUrl: string | null;
+  width: number | null;
+  height: number | null;
+  durationSeconds: number | null;
+  originalFileName: string | null;
+  fileSize: number | null;
+  createdAt: string;
+}
+
+export interface ReviewDto {
+  id: number;
+  productId: number;
+  orderItemId: number;
+  rating: number;
+  title: string | null;
+  content: string | null;
+  isPublished: boolean;
+  createdAt: string;
+  updatedAt: string;
+  media: ReviewMediaDto[];
+}
+
+export interface ReviewMediaInput {
+  type: ReviewMediaType | `${ReviewMediaType}` | string;
+  url: string;
+  thumbnailUrl?: string | null;
+  width?: number | null;
+  height?: number | null;
+  durationSeconds?: number | null;
+  originalFileName?: string | null;
+  fileSize?: number | null;
+}
+
+export interface CreateReviewInput {
+  rating: number;
+  title?: string | null;
+  content?: string | null;
+  media?: ReviewMediaInput[];
+}
+
+const REVIEW_TITLE_MAX_LENGTH = 100;
+const REVIEW_CONTENT_MAX_LENGTH = 500;
+const REVIEW_MAX_FILES = 5;
+const REVIEW_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+
+const VALID_REVIEW_MEDIA_TYPES = new Set<ReviewMediaType>([
+  ReviewMediaType.IMAGE,
+  ReviewMediaType.VIDEO,
+]);
+
+
 const ORDER_ITEMS_INCLUDE = {
   items: {
     include: {
@@ -187,6 +260,50 @@ type OrderWithDetailRelations = Prisma.OrderGetPayload<{
   include: typeof ORDER_DETAIL_INCLUDE;
 }>;
 
+type ReviewWithMedia = Prisma.ReviewGetPayload<{
+  include: { media: true };
+}>;
+
+type NormalizedReviewMediaInput = {
+  type: ReviewMediaType;
+  url: string;
+  thumbnailUrl: string | null;
+  width: number | null;
+  height: number | null;
+  durationSeconds: number | null;
+  originalFileName: string | null;
+  fileSize: number | null;
+};
+
+const mapReviewMedia = (
+  media: Prisma.ReviewMediaGetPayload<{}>
+): ReviewMediaDto => ({
+  id: media.id,
+  type: media.type,
+  url: media.url,
+  thumbnailUrl: media.thumbnailUrl ?? null,
+  width: media.width ?? null,
+  height: media.height ?? null,
+  durationSeconds:
+    media.durationSeconds == null ? null : Number(media.durationSeconds),
+  originalFileName: media.originalFileName ?? null,
+  fileSize: media.fileSize ?? null,
+  createdAt: media.createdAt.toISOString(),
+});
+
+const mapReview = (review: ReviewWithMedia): ReviewDto => ({
+  id: review.id,
+  productId: review.productId,
+  orderItemId: review.orderItemId,
+  rating: review.rating,
+  title: review.title ?? null,
+  content: review.content ?? null,
+  isPublished: review.isPublished,
+  createdAt: review.createdAt.toISOString(),
+  updatedAt: review.updatedAt.toISOString(),
+  media: review.media.map(mapReviewMedia),
+});
+
 const getPrimaryImageUrl = (item: OrderItemWithRelations): string | null => {
   const images = item.variant.product.images ?? [];
   if (!images.length) return null;
@@ -211,6 +328,21 @@ const mapOrderItem = (item: OrderItemWithRelations): OrderItemDto => {
   };
 };
 
+const mapOrderItemWithReview = (
+  order: { status: OrderStatus },
+  item: OrderItemWithRelations,
+  reviewedOrderItemIds: Set<number>
+): OrderItemDto => {
+  const base = mapOrderItem(item);
+  const reviewed = reviewedOrderItemIds.has(item.id);
+  const canReview = DELIVERED_STATUSES.has(order.status) && !reviewed;
+  return {
+    ...base,
+    reviewed,
+    canReview,
+  };
+};
+
 const buildOrderTotals = (
   order: OrderWithItems | OrderWithDetailRelations
 ): OrderTotalsDto => {
@@ -227,8 +359,13 @@ const buildOrderTotals = (
   };
 };
 
-const mapOrderSummary = (order: OrderWithItems): OrderSummaryDto => {
-  const items = order.items.map(mapOrderItem);
+const mapOrderSummary = (
+  order: OrderWithItems,
+  reviewedOrderItemIds: Set<number> = new Set()
+): OrderSummaryDto => {
+  const items = order.items.map((item) =>
+    mapOrderItemWithReview(order, item, reviewedOrderItemIds)
+  );
   return {
     id: order.id,
     code: formatOrderCode(order.id),
@@ -283,28 +420,22 @@ const buildOrderDetailDto = async (
   userId: number,
   db: Prisma.TransactionClient | typeof prisma = prisma
 ): Promise<OrderDetailDto> => {
-  const summary = mapOrderSummary(order);
-
-  const productIds = Array.from(
-    new Set(order.items.map((item) => item.variant.product.id))
-  );
-  const reviews = productIds.length
+  const orderItemIds = order.items.map((item) => item.id);
+  const reviewRows = orderItemIds.length
     ? await db.review.findMany({
-        where: { userId, productId: { in: productIds } },
-        select: { productId: true },
+        where: { userId, orderItemId: { in: orderItemIds } },
+        select: { orderItemId: true },
       })
     : [];
-  const reviewedProducts = new Set(reviews.map((review) => review.productId));
+  const reviewedOrderItemIds = new Set(
+    reviewRows.map((review) => review.orderItemId)
+  );
 
-  const items = order.items.map((item) => {
-    const base = mapOrderItem(item);
-    const reviewed = reviewedProducts.has(item.variant.product.id);
-    return {
-      ...base,
-      reviewed,
-      canReview: !reviewed && DELIVERED_STATUSES.has(order.status),
-    };
-  });
+  const summary = mapOrderSummary(order, reviewedOrderItemIds);
+
+  const items = order.items.map((item) =>
+    mapOrderItemWithReview(order, item, reviewedOrderItemIds)
+  );
 
   const shippingAddress = order.address
     ? {
@@ -637,7 +768,23 @@ export async function listUserOrders(
     prisma.order.count({ where }),
   ]);
 
-  const summaries = orders.map((order) => mapOrderSummary(order));
+  const allOrderItemIds = orders.flatMap((order) =>
+    order.items.map((item) => item.id)
+  );
+  const reviewRows = allOrderItemIds.length
+    ? await prisma.review.findMany({
+        where: { userId, orderItemId: { in: allOrderItemIds } },
+        select: { orderItemId: true },
+      })
+    : [];
+  const reviewedOrderItemIds = new Set(
+    reviewRows.map((review) => review.orderItemId)
+  );
+
+  const summaries = orders.map((order) =>
+    mapOrderSummary(order, reviewedOrderItemIds)
+  );
+
   const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize);
 
   return {
@@ -772,6 +919,261 @@ export async function reorderOrder(
     cart,
     addedItems: payload,
   };
+}
+
+const normalizeReviewMediaInputs = (
+  raw?: ReviewMediaInput[]
+): NormalizedReviewMediaInput[] => {
+  if (!raw?.length) {
+    return [];
+  }
+
+  if (raw.length > REVIEW_MAX_FILES) {
+    throw new ServiceError(
+      "MEDIA_LIMIT_EXCEEDED",
+      `Chỉ được tải lên tối đa ${REVIEW_MAX_FILES} tệp đính kèm`,
+      400
+    );
+  }
+
+  return raw.map((item, index) => {
+    if (!item || typeof item !== "object") {
+      throw new ServiceError(
+        "REVIEW_MEDIA_INVALID",
+        `Định dạng tệp đính kèm thứ ${index + 1} không hợp lệ`
+      );
+    }
+
+    const typeRaw =
+      typeof item.type === "string" ? item.type.trim().toUpperCase() : "";
+    if (!VALID_REVIEW_MEDIA_TYPES.has(typeRaw as ReviewMediaType)) {
+      throw new ServiceError(
+        "REVIEW_MEDIA_INVALID_TYPE",
+        `Loại tệp đính kèm thứ ${index + 1} không hợp lệ`
+      );
+    }
+
+    const url = toNullableString(item.url);
+    if (!url) {
+      throw new ServiceError(
+        "REVIEW_MEDIA_INVALID_URL",
+        `Thiếu URL cho tệp đính kèm thứ ${index + 1}`
+      );
+    }
+
+    const thumbnailUrl = toNullableString(item.thumbnailUrl ?? null);
+    const width = toNullableNumber(item.width);
+    const height = toNullableNumber(item.height);
+    const durationSeconds = toNullableNumber(item.durationSeconds);
+    const originalFileName = toNullableString(item.originalFileName ?? null);
+    const fileSize = toNullableNumber(item.fileSize);
+
+    if (fileSize != null && fileSize > REVIEW_MAX_FILE_SIZE_BYTES) {
+      throw new ServiceError(
+        "MEDIA_FILE_TOO_LARGE",
+        `Tệp ${index + 1} vượt quá ${REVIEW_MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB`
+      );
+    }
+
+    return {
+      type: typeRaw as ReviewMediaType,
+      url,
+      thumbnailUrl,
+      width: width != null ? Math.round(width) : null,
+      height: height != null ? Math.round(height) : null,
+      durationSeconds: durationSeconds != null ? durationSeconds : null,
+      originalFileName,
+      fileSize: fileSize != null ? Math.round(fileSize) : null,
+    } satisfies NormalizedReviewMediaInput;
+  });
+};
+
+export async function createOrderItemReview(
+  userId: number,
+  orderId: number,
+  orderItemId: number,
+  input: CreateReviewInput
+): Promise<ReviewDto> {
+  const rating = Number.isFinite(input.rating)
+    ? Math.floor(input.rating)
+    : Number.parseInt(String(input.rating), 10);
+  if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+    throw new ServiceError(
+      "INVALID_REVIEW_RATING",
+      "Điểm đánh giá phải nằm trong khoảng từ 1 đến 5"
+    );
+  }
+
+  const rawTitle = typeof input.title === "string" ? input.title : null;
+  if (rawTitle && rawTitle.trim().length > REVIEW_TITLE_MAX_LENGTH) {
+    throw new ServiceError(
+      "REVIEW_TITLE_TOO_LONG",
+      `Tiêu đề tối đa ${REVIEW_TITLE_MAX_LENGTH} ký tự`
+    );
+  }
+  const title = toNullableString(rawTitle);
+
+  const rawContent =
+    typeof input.content === "string" ? input.content : undefined;
+  if (rawContent && rawContent.trim().length > REVIEW_CONTENT_MAX_LENGTH) {
+    throw new ServiceError(
+      "REVIEW_CONTENT_TOO_LONG",
+      `Nội dung tối đa ${REVIEW_CONTENT_MAX_LENGTH} ký tự`
+    );
+  }
+  const content = toNullableString(rawContent ?? null);
+
+  const mediaPayload = normalizeReviewMediaInputs(input.media);
+
+  const review = await prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        items: {
+          where: { id: orderItemId },
+          select: {
+            id: true,
+            variant: { select: { productId: true } },
+          },
+        },
+      },
+    });
+
+    if (!order || order.userId !== userId) {
+      throw new ServiceError(
+        "ORDER_NOT_FOUND_OR_FORBIDDEN",
+        "Không tìm thấy đơn hàng hoặc không thuộc về bạn",
+        404
+      );
+    }
+
+    const item = order.items[0];
+    if (!item) {
+      throw new ServiceError(
+        "ORDER_ITEM_NOT_FOUND",
+        "Không tìm thấy sản phẩm trong đơn hàng",
+        404
+      );
+    }
+
+    if (!DELIVERED_STATUSES.has(order.status)) {
+      throw new ServiceError(
+        "ORDER_NOT_DELIVERED",
+        "Đơn hàng chưa được giao nên không thể đánh giá",
+        409
+      );
+    }
+
+    const existing = await tx.review.findUnique({
+      where: { orderItemId: item.id },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ServiceError(
+        "REVIEW_ALREADY_EXISTS",
+        "Bạn đã đánh giá sản phẩm này rồi",
+        409
+      );
+    }
+
+    const created = await tx.review.create({
+      data: {
+        productId: item.variant.productId,
+        userId,
+        orderItemId: item.id,
+        rating,
+        title,
+        content,
+      },
+    });
+
+    if (mediaPayload.length) {
+      for (const media of mediaPayload) {
+        await tx.reviewMedia.create({
+          data: {
+            reviewId: created.id,
+            type: media.type,
+            url: media.url,
+            thumbnailUrl: media.thumbnailUrl,
+            width: media.width,
+            height: media.height,
+            durationSeconds: media.durationSeconds,
+            originalFileName: media.originalFileName,
+            fileSize: media.fileSize,
+          },
+        });
+      }
+    }
+
+    const full = await tx.review.findUnique({
+      where: { id: created.id },
+      include: { media: { orderBy: { id: "asc" } } },
+    });
+
+    if (!full) {
+      throw new ServiceError(
+        "REVIEW_NOT_FOUND",
+        "Không thể tải đánh giá vừa tạo",
+        500
+      );
+    }
+
+    return mapReview(full);
+  });
+
+  return review;
+}
+
+export async function getOrderItemReview(
+  userId: number,
+  orderId: number,
+  orderItemId: number
+): Promise<ReviewDto> {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: {
+      id: true,
+      userId: true,
+      items: {
+        where: { id: orderItemId },
+        select: { id: true },
+      },
+    },
+  });
+
+  if (!order || order.userId !== userId) {
+    throw new ServiceError(
+      "ORDER_NOT_FOUND_OR_FORBIDDEN",
+      "Không tìm thấy đơn hàng hoặc không thuộc về bạn",
+      404
+    );
+  }
+
+  if (!order.items.length) {
+    throw new ServiceError(
+      "ORDER_ITEM_NOT_FOUND",
+      "Không tìm thấy sản phẩm trong đơn hàng",
+      404
+    );
+  }
+
+  const review = await prisma.review.findUnique({
+    where: { orderItemId },
+    include: { media: { orderBy: { id: "asc" } } },
+  });
+
+  if (!review || review.userId !== userId) {
+    throw new ServiceError(
+      "REVIEW_NOT_FOUND",
+      "Chưa có đánh giá cho sản phẩm này",
+      404
+    );
+  }
+
+  return mapReview(review);
 }
 
 // === P1: Liệt kê tất cả payment attempts của 1 order (check quyền sở hữu) ===

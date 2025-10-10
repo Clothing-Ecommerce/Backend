@@ -2,13 +2,16 @@ import { Response } from "express";
 import { AuthenticatedRequest } from "../middleware/authMiddleware";
 import {
   cancelOrder,
+  createOrderItemReview,
   getOrderDetail,
+  getOrderItemReview,
   listPaymentsOfOrder,
   listUserOrders,
   placeOrderFromCart,
   reorderOrder,
   retryMomoPayment,
   type ListOrdersOptions,
+  type ReviewMediaInput,
 } from "../services/orderService";
 import { OrderStatus, PaymentMethod } from ".prisma/client";
 import { ServiceError } from "../services/cartService";
@@ -259,6 +262,101 @@ export const reorderOrderController = async (
     }
     console.error("reorderOrderController", err);
     return res.status(500).json({ code: "SERVER_ERROR" });
+  }
+};
+
+export const createOrderItemReviewController = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  const userId = getUserId(req, res);
+  if (userId === null) return;
+
+  const orderId = Number(req.params.orderId);
+  const orderItemId = Number(req.params.orderItemId);
+  if (!Number.isSafeInteger(orderId) || orderId <= 0) {
+    return res.status(400).json({ code: "INVALID_ORDER_ID" });
+  }
+  if (!Number.isSafeInteger(orderItemId) || orderItemId <= 0) {
+    return res.status(400).json({ code: "INVALID_ORDER_ITEM_ID" });
+  }
+
+  const ratingRaw = req.body?.rating ?? req.body?.score ?? req.body?.stars;
+  const rating =
+    typeof ratingRaw === "number"
+      ? ratingRaw
+      : ratingRaw != null
+      ? Number(ratingRaw)
+      : Number.NaN;
+
+  const title =
+    typeof req.body?.title === "string"
+      ? req.body.title
+      : typeof req.body?.headline === "string"
+      ? req.body.headline
+      : undefined;
+
+  const content =
+    typeof req.body?.content === "string"
+      ? req.body.content
+      : typeof req.body?.details === "string"
+      ? req.body.details
+      : undefined;
+
+  const media = Array.isArray(req.body?.media)
+    ? (req.body.media as ReviewMediaInput[])
+    : undefined;
+
+  try {
+    const review = await createOrderItemReview(userId, orderId, orderItemId, {
+      rating,
+      title,
+      content,
+      media,
+    });
+    return res.status(201).json(review);
+  } catch (err: any) {
+    if (err instanceof ServiceError) {
+      return res
+        .status(err.httpStatus)
+        .json({ code: err.code, message: err.message, data: err.data });
+    }
+    console.error("createOrderItemReviewController", err);
+    return res
+      .status(500)
+      .json({ code: "SERVER_ERROR", message: "Không thể tạo đánh giá" });
+  }
+};
+
+export const getOrderItemReviewController = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  const userId = getUserId(req, res);
+  if (userId === null) return;
+
+  const orderId = Number(req.params.orderId);
+  const orderItemId = Number(req.params.orderItemId);
+  if (!Number.isSafeInteger(orderId) || orderId <= 0) {
+    return res.status(400).json({ code: "INVALID_ORDER_ID" });
+  }
+  if (!Number.isSafeInteger(orderItemId) || orderItemId <= 0) {
+    return res.status(400).json({ code: "INVALID_ORDER_ITEM_ID" });
+  }
+
+  try {
+    const review = await getOrderItemReview(userId, orderId, orderItemId);
+    return res.status(200).json(review);
+  } catch (err: any) {
+    if (err instanceof ServiceError) {
+      return res
+        .status(err.httpStatus)
+        .json({ code: err.code, message: err.message, data: err.data });
+    }
+    console.error("getOrderItemReviewController", err);
+    return res
+      .status(500)
+      .json({ code: "SERVER_ERROR", message: "Không thể tải đánh giá" });
   }
 };
 

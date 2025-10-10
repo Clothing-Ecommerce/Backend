@@ -2,7 +2,9 @@ import { Router } from "express";
 import { authenticateJWT } from "../middleware/authMiddleware";
 import {
   cancelOrderController,
+  createOrderItemReviewController,
   getOrderDetailController,
+  getOrderItemReviewController,
   listOrdersController,
   orderMomoRetryController,
   orderPaymentsListController,
@@ -16,6 +18,11 @@ router.use(authenticateJWT);
 
 router.get("/list", listOrdersController);
 router.post("/checkout", placeOrderController);
+
+router
+  .route("/:orderId/items/:orderItemId/review")
+  .get(getOrderItemReviewController)
+  .post(createOrderItemReviewController);
 
 router.get("/:orderId/payments", orderPaymentsListController); // xem lịch sử thanh toán
 router.post("/:orderId/payments/momo/retry", orderMomoRetryController);
