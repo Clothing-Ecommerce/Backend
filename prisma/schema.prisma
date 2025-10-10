@@ -72,6 +72,12 @@ enum PriceType {
   SALE   // giá bán áp dụng (đã giảm)
 }
 
+// Loại media trong đánh giá
+enum ReviewMediaType {
+  IMAGE
+  VIDEO
+}
+
 // =================== Users & Addresses ===================
 
 model User {
@@ -198,7 +204,7 @@ model Product {
   name         String                                        // tên sản phẩm
   slug         String          @unique                       // slug SEO
   description  String?                                       // mô tả
-  basePrice    Decimal                                       // giá cơ sở (VND) dùng khi variant/price không có
+  basePrice    Decimal                                       // dùng khi variant/price không có
 
   categoryId   Int                                           // FK -> Category.id
   category     Category        @relation(fields: [categoryId], references: [id])
@@ -404,6 +410,8 @@ model OrderItem {
   taxRate      Decimal?                                     // % thuế snapshot
   taxAmount    Decimal?                                     // tiền thuế snapshot
 
+  review       Review?                                     // đánh giá (nếu có)
+
   createdAt    DateTime        @default(now())
 
   @@index([orderId])
@@ -532,10 +540,15 @@ model Review {
   userId      Int                                      // FK -> User.id
   user        User      @relation(fields: [userId], references: [id])
 
+  orderItemId Int       @unique                       // FK -> OrderItem.id (1 review / order item)
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id])
+
   rating      Int                                      // sao (1-5)
   title       String?                                  // tiêu đề
   content     String?                                  // nội dung
   isPublished Boolean   @default(true)                 // đã duyệt/hiển thị
+
+  media       ReviewMedia[]                                // ảnh/video đính kèm
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -543,6 +556,23 @@ model Review {
   @@unique([productId, userId])                        // 1 user 1 review / product
   @@index([productId])
   @@index([userId])
+}
+
+model ReviewMedia {
+  id               Int             @id @default(autoincrement())
+  reviewId         Int
+  review           Review          @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  type             ReviewMediaType
+  url              String
+  thumbnailUrl     String?
+  width            Int?
+  height           Int?
+  durationSeconds  Float?
+  originalFileName String?
+  fileSize         Int?
+  createdAt        DateTime        @default(now())
+
+  @@index([reviewId])
 }
 
 model WishlistItem {
