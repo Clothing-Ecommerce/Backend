@@ -544,7 +544,6 @@ model Review {
   orderItem   OrderItem @relation(fields: [orderItemId], references: [id])
 
   rating      Int                                      // sao (1-5)
-  title       String?                                  // tiêu đề
   content     String?                                  // nội dung
   isPublished Boolean   @default(true)                 // đã duyệt/hiển thị
 
