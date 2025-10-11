@@ -15,6 +15,8 @@ import cartRoutes from "./routes/cartRoute";
 import wishlistRoutes from "./routes/wishlistRoute";
 import paymentRoutes from "./routes/paymentRoute";
 import orderRoutes from "./routes/orderRoute";
+import reviewRoutes from "./routes/reviewRoute";
+
 
 const app = express();
 
@@ -37,9 +39,10 @@ app.use("/products", productRoutes);
 app.use("/categories", categoryRoutes);
 app.use("/brands", brandRoutes);
 app.use("/cart", cartRoutes);
-app.use("/wishlist", wishlistRoutes); // Sử dụng require để tránh lỗi vòng lặp
+app.use("/wishlist", wishlistRoutes);
 app.use("/payment", paymentRoutes);
 app.use("/order", orderRoutes);
+app.use("/review", reviewRoutes);
 
 const PORT = process.env.PORT || 3000;
 

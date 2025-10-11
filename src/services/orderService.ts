@@ -195,6 +195,12 @@ export interface CreateReviewInput {
   media?: ReviewMediaInput[];
 }
 
+export interface UpdateReviewInput {
+  rating?: number;
+  content?: string | null;
+  media?: ReviewMediaInput[] | null;
+}
+
 const REVIEW_CONTENT_MAX_LENGTH = 500;
 const REVIEW_MAX_FILES = 5;
 const REVIEW_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
@@ -1160,6 +1166,157 @@ export async function getOrderItemReview(
   }
 
   return mapReview(review);
+}
+
+export async function updateReview(
+  userId: number,
+  reviewId: number,
+  input: UpdateReviewInput
+): Promise<ReviewDto> {
+  const shouldUpdateRating = Object.prototype.hasOwnProperty.call(
+    input,
+    "rating"
+  );
+  const shouldUpdateContent = Object.prototype.hasOwnProperty.call(
+    input,
+    "content"
+  );
+  const shouldReplaceMedia = Object.prototype.hasOwnProperty.call(
+    input,
+    "media"
+  );
+
+  if (!shouldUpdateRating && !shouldUpdateContent && !shouldReplaceMedia) {
+    throw new ServiceError(
+      "NO_REVIEW_UPDATE_FIELDS",
+      "Không có dữ liệu để cập nhật đánh giá"
+    );
+  }
+
+  let normalizedRating: number | undefined;
+  if (shouldUpdateRating) {
+    const ratingValue = input.rating;
+    if (ratingValue == null) {
+      throw new ServiceError(
+        "INVALID_REVIEW_RATING",
+        "Điểm đánh giá phải nằm trong khoảng từ 1 đến 5"
+      );
+    }
+    const candidate = Math.floor(ratingValue);
+    if (!Number.isFinite(candidate) || candidate < 1 || candidate > 5) {
+      throw new ServiceError(
+        "INVALID_REVIEW_RATING",
+        "Điểm đánh giá phải nằm trong khoảng từ 1 đến 5"
+      );
+    }
+    normalizedRating = candidate;
+  }
+
+  let normalizedContent: string | null | undefined;
+  if (shouldUpdateContent) {
+    const rawContent =
+      typeof input.content === "string"
+        ? input.content
+        : input.content == null
+        ? null
+        : String(input.content);
+
+    if (rawContent && rawContent.trim().length > REVIEW_CONTENT_MAX_LENGTH) {
+      throw new ServiceError(
+        "REVIEW_CONTENT_TOO_LONG",
+        `Nội dung tối đa ${REVIEW_CONTENT_MAX_LENGTH} ký tự`
+      );
+    }
+
+    normalizedContent = toNullableString(rawContent ?? null);
+  }
+
+  const mediaPayload = shouldReplaceMedia
+    ? normalizeReviewMediaInputs(
+        Array.isArray(input.media) ? input.media : undefined
+      )
+    : null;
+
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.review.findUnique({
+      where: { id: reviewId },
+      select: { id: true, userId: true },
+    });
+
+    if (!existing || existing.userId !== userId) {
+      throw new ServiceError(
+        "REVIEW_NOT_FOUND",
+        "Không tìm thấy đánh giá",
+        404
+      );
+    }
+
+    const updateData: Prisma.ReviewUpdateInput = {};
+    if (normalizedRating !== undefined) {
+      updateData.rating = normalizedRating;
+    }
+    if (normalizedContent !== undefined) {
+      updateData.content = normalizedContent;
+    }
+
+    if (Object.keys(updateData).length) {
+      await tx.review.update({
+        where: { id: reviewId },
+        data: updateData,
+      });
+    }
+
+    if (shouldReplaceMedia) {
+      await tx.reviewMedia.deleteMany({ where: { reviewId } });
+      if (mediaPayload && mediaPayload.length) {
+        await tx.reviewMedia.createMany({
+          data: mediaPayload.map((media) => ({
+            reviewId,
+            type: media.type,
+            url: media.url,
+            thumbnailUrl: media.thumbnailUrl,
+            width: media.width,
+            height: media.height,
+            durationSeconds: media.durationSeconds,
+            originalFileName: media.originalFileName,
+            fileSize: media.fileSize,
+          })),
+        });
+      }
+    }
+
+    const full = await tx.review.findUnique({
+      where: { id: reviewId },
+      include: { media: { orderBy: { id: "asc" } } },
+    });
+
+    if (!full) {
+      throw new ServiceError(
+        "REVIEW_NOT_FOUND",
+        "Không thể tải đánh giá",
+        404
+      );
+    }
+
+    return mapReview(full);
+  });
+}
+
+export async function deleteReview(userId: number, reviewId: number): Promise<void> {
+  const review = await prisma.review.findUnique({
+    where: { id: reviewId },
+    select: { id: true, userId: true },
+  });
+
+  if (!review || review.userId !== userId) {
+    throw new ServiceError(
+      "REVIEW_NOT_FOUND",
+      "Không tìm thấy đánh giá",
+      404
+    );
+  }
+
+  await prisma.review.delete({ where: { id: reviewId } });
 }
 
 // === P1: Liệt kê tất cả payment attempts của 1 order (check quyền sở hữu) ===
