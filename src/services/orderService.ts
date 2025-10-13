@@ -166,6 +166,13 @@ export interface ReviewMediaDto {
   createdAt: string;
 }
 
+export interface ReviewVariantDto {
+  id: number;
+  sku: string | null;
+  size: { id: number; name: string; note: string | null } | null;
+  color: { id: number; name: string; hex: string | null } | null;
+}
+
 export interface ReviewDto {
   id: number;
   productId: number;
@@ -176,6 +183,7 @@ export interface ReviewDto {
   createdAt: string;
   updatedAt: string;
   media: ReviewMediaDto[];
+  variant: ReviewVariantDto | null;
 }
 
 export interface ReviewMediaInput {
@@ -263,8 +271,20 @@ type OrderWithDetailRelations = Prisma.OrderGetPayload<{
   include: typeof ORDER_DETAIL_INCLUDE;
 }>;
 
-type ReviewWithMedia = Prisma.ReviewGetPayload<{
-  include: { media: true };
+type ReviewWithRelations = Prisma.ReviewGetPayload<{
+  include: {
+    media: true;
+    orderItem: {
+      select: {
+        variant: {
+          include: {
+            size: true;
+            color: true;
+          };
+        };
+      };
+    };
+  };
 }>;
 
 type NormalizedReviewMediaInput = {
@@ -276,6 +296,38 @@ type NormalizedReviewMediaInput = {
   durationSeconds: number | null;
   originalFileName: string | null;
   fileSize: number | null;
+};
+
+const mapReviewVariant = (
+  variant: Prisma.ProductVariantGetPayload<{
+    include: {
+      size: true;
+      color: true;
+    };
+  }> | null | undefined
+): ReviewVariantDto | null => {
+  if (!variant) {
+    return null;
+  }
+
+  return {
+    id: variant.id,
+    sku: variant.sku ?? null,
+    size: variant.size
+      ? {
+          id: variant.size.id,
+          name: variant.size.name,
+          note: variant.size.note ?? null,
+        }
+      : null,
+    color: variant.color
+      ? {
+          id: variant.color.id,
+          name: variant.color.name,
+          hex: variant.color.hex ?? null,
+        }
+      : null,
+  };
 };
 
 const mapReviewMedia = (
@@ -294,7 +346,7 @@ const mapReviewMedia = (
   createdAt: media.createdAt.toISOString(),
 });
 
-const mapReview = (review: ReviewWithMedia): ReviewDto => ({
+const mapReview = (review: ReviewWithRelations): ReviewDto => ({
   id: review.id,
   productId: review.productId,
   orderItemId: review.orderItemId,
@@ -304,6 +356,7 @@ const mapReview = (review: ReviewWithMedia): ReviewDto => ({
   createdAt: review.createdAt.toISOString(),
   updatedAt: review.updatedAt.toISOString(),
   media: review.media.map(mapReviewMedia),
+  variant: mapReviewVariant(review.orderItem?.variant),
 });
 
 const getPrimaryImageUrl = (item: OrderItemWithRelations): string | null => {
@@ -1102,7 +1155,19 @@ export async function createOrderItemReview(
 
     const full = await tx.review.findUnique({
       where: { id: created.id },
-      include: { media: { orderBy: { id: "asc" } } },
+      include: {
+        media: { orderBy: { id: "asc" } },
+        orderItem: {
+          select: {
+            variant: {
+              include: {
+                size: true,
+                color: true,
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!full) {
@@ -1154,7 +1219,19 @@ export async function getOrderItemReview(
 
   const review = await prisma.review.findUnique({
     where: { orderItemId },
-    include: { media: { orderBy: { id: "asc" } } },
+    include: {
+      media: { orderBy: { id: "asc" } },
+      orderItem: {
+        select: {
+          variant: {
+            include: {
+              size: true,
+              color: true,
+            },
+          },
+        },
+      },
+    },
   });
 
   if (!review || review.userId !== userId) {
@@ -1287,7 +1364,19 @@ export async function updateReview(
 
     const full = await tx.review.findUnique({
       where: { id: reviewId },
-      include: { media: { orderBy: { id: "asc" } } },
+      include: {
+        media: { orderBy: { id: "asc" } },
+        orderItem: {
+          select: {
+            variant: {
+              include: {
+                size: true,
+                color: true,
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!full) {

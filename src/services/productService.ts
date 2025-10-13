@@ -366,12 +366,61 @@ export async function getProductById(id: number) {
               avatar: true,
             },
           },
+          orderItem: {
+            select: {
+              variant: {
+                select: {
+                  id: true,
+                  sku: true,
+                  size: {
+                    select: {
+                      id: true,
+                      name: true,
+                      note: true,
+                    },
+                  },
+                  color: {
+                    select: {
+                      id: true,
+                      name: true,
+                      hex: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       },
     },
   });
 
-  return product; // controller will decide 404 vs 200
+  if (!product) {
+    return null;
+  }
+
+  const reviewsWithVariant = (product.reviews ?? []).map((review) => {
+    const { orderItem, ...rest } = review as typeof review & {
+      orderItem?: {
+        variant: {
+          id: number;
+          sku: string | null;
+          size: { id: number; name: string; note: string | null } | null;
+          color: { id: number; name: string; hex: string | null } | null;
+        } | null;
+      };
+    };
+
+    return {
+      ...rest,
+      variant: orderItem?.variant ?? null,
+    };
+  });
+
+  return {
+    ...product,
+    reviews: reviewsWithVariant,
+  };
 }
 
 export async function getRelatedProducts(categoryId: number, currentProductId: number, take = 4) {
