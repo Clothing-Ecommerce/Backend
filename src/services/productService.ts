@@ -8,7 +8,7 @@ export type SortBy = "newest" | "priceAsc" | "priceDesc";
 export interface GetProductsQuery {
   search?: string;
   category?: string; // "all" | "<id>"
-  brand?: string;    // "all" | "<id>"
+  brand?: string; // "all" | "<id>"
   minPrice?: string;
   maxPrice?: string;
   sortBy?: string;
@@ -20,7 +20,7 @@ export interface GetProductsQuery {
 export interface GetProductsParams {
   search?: string;
   // categoryId?: number | null;
-  // categorySlug?: string | null; 
+  // categorySlug?: string | null;
 
   // [MULTI] đổi từ đơn → mảng
   categoryIds?: number[] | null;
@@ -44,6 +44,8 @@ export interface ProductCardDTO {
   image?: { id: number; url: string; alt: string | null } | null;
   effectivePrice: number; // computed for list view
   compareAtPrice?: number | null;
+  totalStock: number;
+  inStock: boolean;
 }
 
 export interface VariantOptionDTO {
@@ -55,12 +57,15 @@ export interface VariantOptionDTO {
   sizeName: string | null;
   stock: number;
   isActive: boolean;
-};
+}
 
 /**
  * Helper: is a Price (history) record active at a given time
  */
-function isActivePrice(p: { startAt: Date | null; endAt: Date | null }, at = new Date()) {
+function isActivePrice(
+  p: { startAt: Date | null; endAt: Date | null },
+  at = new Date()
+) {
   const starts = !p.startAt || p.startAt <= at;
   const ends = !p.endAt || p.endAt >= at;
   return starts && ends;
@@ -96,9 +101,14 @@ function computeVariantEffectivePrice(
   at = new Date()
 ) {
   // 1) active SALE on variant history
-  const sale = variant.prices.find((p) => p.type === "SALE" && isActivePrice(p, at));
+  const sale = variant.prices.find(
+    (p) => p.type === "SALE" && isActivePrice(p, at)
+  );
   if (sale) {
-    return { effective: decToNum(sale.amount), compareAt: null as number | null };
+    return {
+      effective: decToNum(sale.amount),
+      compareAt: null as number | null,
+    };
   }
   // 2) variant.price fallback
   if (variant.price != null) {
@@ -164,7 +174,9 @@ async function resolveCategoryFilterIds(opts: {
 
   // Từ slug
   if (opts.categorySlugs?.length) {
-    const slugs = Array.from(new Set(opts.categorySlugs.map((s) => s.trim()).filter(Boolean)));
+    const slugs = Array.from(
+      new Set(opts.categorySlugs.map((s) => s.trim()).filter(Boolean))
+    );
     if (slugs.length) {
       const roots = await prisma.category.findMany({
         where: { slug: { in: slugs } },
@@ -214,7 +226,8 @@ export async function getProducts(params: GetProductsParams) {
   // }
 
   const hadCategoryInput =
-    (inputCategoryIds && inputCategoryIds.length > 0) || (inputCategorySlugs && inputCategorySlugs.length > 0);
+    (inputCategoryIds && inputCategoryIds.length > 0) ||
+    (inputCategorySlugs && inputCategorySlugs.length > 0);
 
   // [MULTI] Resolve tất cả categoryIds (bao gồm cây con) từ nhiều input
   const categoryIds = await resolveCategoryFilterIds({
@@ -232,7 +245,9 @@ export async function getProducts(params: GetProductsParams) {
     ...(search
       ? { name: { contains: search.trim(), mode: "insensitive" as const } }
       : null),
-    ...(categoryIds && categoryIds.length ? { categoryId: { in: categoryIds } } : null),
+    ...(categoryIds && categoryIds.length
+      ? { categoryId: { in: categoryIds } }
+      : null),
     ...(brandId ? { brandId } : null),
     // only show products which have some active variants (and optionally in stock)
     variants: {
@@ -259,7 +274,13 @@ export async function getProducts(params: GetProductsParams) {
         where: { isPrimary: true },
         orderBy: { sortOrder: "asc" },
         take: 1,
-        select: { id: true, url: true, alt: true, isPrimary: true, sortOrder: true },
+        select: {
+          id: true,
+          url: true,
+          alt: true,
+          isPrimary: true,
+          sortOrder: true,
+        },
       },
       variants: {
         where: { isActive: true, ...(inStockOnly ? { stock: { gt: 0 } } : {}) },
@@ -286,16 +307,31 @@ export async function getProducts(params: GetProductsParams) {
 
   // Compute effective prices and apply price filtering/sorting in-memory
   const enriched: ProductCardDTO[] = candidates.map((p) => {
-    const { effective } = computeProductEffectivePrice(p.basePrice as unknown as Prisma.Decimal, p.variants as any);
+    const { effective } = computeProductEffectivePrice(
+      p.basePrice as unknown as Prisma.Decimal,
+      p.variants as any
+    );
+    const totalStock = p.variants.reduce(
+      (acc, variant) => acc + (variant.stock ?? 0),
+      0
+    );
     return {
       id: p.id,
       name: p.name,
       slug: (p as any).slug ?? null,
       category: p.category,
       brand: p.brand,
-      image: p.images[0] ? { id: p.images[0].id, url: p.images[0].url, alt: p.images[0].alt ?? null } : null,
+      image: p.images[0]
+        ? {
+            id: p.images[0].id,
+            url: p.images[0].url,
+            alt: p.images[0].alt ?? null,
+          }
+        : null,
       effectivePrice: effective,
       compareAtPrice: null,
+      totalStock,
+      inStock: totalStock > 0,
     };
   });
 
@@ -323,7 +359,7 @@ export async function getProducts(params: GetProductsParams) {
 
   return {
     products: pageItems,
-    total,           // after price filtering
+    total, // after price filtering
     totalPrePrice: preCount, // baseline count before price filters (optional)
     page,
     pageSize,
@@ -340,7 +376,13 @@ export async function getProductById(id: number) {
       brand: { select: { id: true, name: true } },
       images: {
         orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }],
-        select: { id: true, url: true, alt: true, isPrimary: true, sortOrder: true },
+        select: {
+          id: true,
+          url: true,
+          alt: true,
+          isPrimary: true,
+          sortOrder: true,
+        },
       },
       variants: {
         where: { isActive: true },
@@ -423,7 +465,11 @@ export async function getProductById(id: number) {
   };
 }
 
-export async function getRelatedProducts(categoryId: number, currentProductId: number, take = 4) {
+export async function getRelatedProducts(
+  categoryId: number,
+  currentProductId: number,
+  take = 4
+) {
   const related = await prisma.product.findMany({
     where: {
       categoryId,
@@ -438,7 +484,13 @@ export async function getRelatedProducts(categoryId: number, currentProductId: n
         where: { isPrimary: true },
         orderBy: { sortOrder: "asc" },
         take: 1,
-        select: { id: true, url: true, alt: true, isPrimary: true, sortOrder: true },
+        select: {
+          id: true,
+          url: true,
+          alt: true,
+          isPrimary: true,
+          sortOrder: true,
+        },
       },
     },
     take,
@@ -449,11 +501,20 @@ export async function getRelatedProducts(categoryId: number, currentProductId: n
     slug: (p as any).slug ?? null,
     category: p.category,
     brand: p.brand,
-    image: p.images[0] ? { id: p.images[0].id, url: p.images[0].url, alt: p.images[0].alt ?? null } : null,
+    image: p.images[0]
+      ? {
+          id: p.images[0].id,
+          url: p.images[0].url,
+          alt: p.images[0].alt ?? null,
+        }
+      : null,
   }));
 }
 
-export async function getProductVariants(productId: number, inStockOnly = false): Promise<VariantOptionDTO[]> {
+export async function getProductVariants(
+  productId: number,
+  inStockOnly = false
+): Promise<VariantOptionDTO[]> {
   // Optionally verify product exists; nếu muốn 404 khi product không tồn tại:
   // const product = await prisma.product.findUnique({ where: { id: productId }, select: { id: true }});
   // if (!product) return []; // hoặc throw 404 ở controller
@@ -461,17 +522,17 @@ export async function getProductVariants(productId: number, inStockOnly = false)
   const variants = await prisma.productVariant.findMany({
     where: {
       productId,
-      isActive: true,                 // chỉ lấy biến thể đang hoạt động
+      isActive: true, // chỉ lấy biến thể đang hoạt động
       ...(inStockOnly ? { stock: { gt: 0 } } : {}), // tuỳ chọn chỉ lấy còn hàng
     },
     include: {
       color: { select: { id: true, name: true, hex: true } },
-      size:  { select: { id: true, name: true } },
+      size: { select: { id: true, name: true } },
     },
     orderBy: [{ id: "asc" }], // ổn định thứ tự
   });
 
-  return variants.map(v => ({
+  return variants.map((v) => ({
     id: v.id,
     colorId: v.color?.id ?? null,
     colorName: v.color?.name ?? null,
@@ -483,7 +544,11 @@ export async function getProductVariants(productId: number, inStockOnly = false)
   }));
 }
 
-export async function getSearchSuggestions(q: string, limitProducts = 8, limitCategories = 6) {
+export async function getSearchSuggestions(
+  q: string,
+  limitProducts = 8,
+  limitCategories = 6
+) {
   const query = q?.trim();
   if (!query) return { products: [], categories: [] };
 
@@ -491,7 +556,9 @@ export async function getSearchSuggestions(q: string, limitProducts = 8, limitCa
     prisma.product.findMany({
       where: { name: { contains: query, mode: "insensitive" } },
       select: {
-        id: true, name: true, slug: true,
+        id: true,
+        name: true,
+        slug: true,
         images: { where: { isPrimary: true }, select: { url: true }, take: 1 },
       },
       take: limitProducts,
@@ -511,7 +578,7 @@ export async function getSearchSuggestions(q: string, limitProducts = 8, limitCa
   ]);
 
   return {
-    products: products.map(p => ({
+    products: products.map((p) => ({
       id: p.id,
       name: p.name,
       slug: p.slug,
