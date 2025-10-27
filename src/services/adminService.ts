@@ -31,6 +31,42 @@ export interface DashboardOverviewResponse {
   };
 }
 
+export interface DashboardInventoryBestSeller {
+  productId: number;
+  name: string;
+  category: string | null;
+  inventory: number;
+  revenue: number;
+  orders: number;
+  conversion: number;
+}
+
+export interface DashboardInventorySlowMover {
+  productId: number;
+  name: string;
+  category: string | null;
+  inventory: number;
+  turnoverDays: number;
+  unitsSold: number;
+}
+
+export interface DashboardInventoryAlert {
+  id: string;
+  type: "inventory" | "performance";
+  severity: "low" | "medium" | "high";
+  title: string;
+  description: string;
+  productId: number | null;
+}
+
+export interface DashboardInventoryResponse {
+  range: DashboardTimeRange;
+  generatedAt: string;
+  bestSellers: DashboardInventoryBestSeller[];
+  slowMovers: DashboardInventorySlowMover[];
+  alerts: DashboardInventoryAlert[];
+}
+
 const decimalToNumber = (value: Prisma.Decimal | number | null | undefined) => {
   if (value == null) return 0;
   const anyValue = value as unknown as { toNumber?: () => number };
@@ -102,6 +138,12 @@ const REVENUE_STATUSES: OrderStatus[] = [
   OrderStatus.SHIPPED,
   OrderStatus.COMPLETED,
 ];
+
+const DEFAULT_INVENTORY_LIMIT = 3;
+const LOW_STOCK_THRESHOLD = 50;
+const CRITICAL_STOCK_THRESHOLD = 10;
+// const SLOW_TURNOVER_ALERT_THRESHOLD = 60;
+const ZERO_SALES_TURNOVER_MULTIPLIER = 10;
 
 export const getProvinces = () =>
   prisma.province.findMany({
@@ -290,5 +332,192 @@ export const getDashboardOverview = async (
         total: totalCustomersPrevious,
       },
     },
+  };
+};
+
+export const getDashboardInventory = async (
+  range: DashboardTimeRange,
+  limit = DEFAULT_INVENTORY_LIMIT,
+): Promise<DashboardInventoryResponse> => {
+  const { currentStart, currentEnd } = getRangeBounds(range);
+  const rangeDays = RANGE_CONFIG[range]?.days ?? 7;
+  const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 10) : DEFAULT_INVENTORY_LIMIT;
+
+  const orderItems = await prisma.orderItem.findMany({
+    where: {
+      order: {
+        status: { in: REVENUE_STATUSES },
+        createdAt: { gte: currentStart, lt: currentEnd },
+      },
+    },
+    select: {
+      orderId: true,
+      quantity: true,
+      priceAtTime: true,
+      variant: {
+        select: { productId: true },
+      },
+    },
+  });
+
+  const productSales = new Map<
+    number,
+    { revenue: number; units: number; orderIds: Set<number> }
+  >();
+
+  for (const item of orderItems) {
+    const productId = item.variant?.productId;
+    if (!productId) continue;
+
+    const accumulator = productSales.get(productId) ?? {
+      revenue: 0,
+      units: 0,
+      orderIds: new Set<number>(),
+    };
+
+    accumulator.revenue += decimalToNumber(item.priceAtTime) * item.quantity;
+    accumulator.units += item.quantity;
+    accumulator.orderIds.add(item.orderId);
+    productSales.set(productId, accumulator);
+  }
+
+  const totalOrders = await prisma.order.count({
+    where: {
+      status: { in: REVENUE_STATUSES },
+      createdAt: { gte: currentStart, lt: currentEnd },
+    },
+  });
+
+  const bestSellerCandidates = Array.from(productSales.entries())
+    .map(([productId, metrics]) => ({
+      productId,
+      revenue: metrics.revenue,
+      unitsSold: metrics.units,
+      orderCount: metrics.orderIds.size,
+    }))
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, normalizedLimit);
+
+  const inventoryGroups = await prisma.productVariant.groupBy({
+    by: ["productId"],
+    where: { isActive: true },
+    _sum: { stock: true },
+  });
+
+  const inventoryMap = new Map<number, number>();
+  for (const group of inventoryGroups) {
+    inventoryMap.set(group.productId, Number(group._sum.stock ?? 0));
+  }
+
+  const slowMoverCandidates = inventoryGroups
+    .map((group) => {
+      const productId = group.productId;
+      const inventory = Number(group._sum.stock ?? 0);
+      const salesMetrics = productSales.get(productId);
+      const unitsSold = salesMetrics?.units ?? 0;
+      const dailyVelocity = rangeDays > 0 ? unitsSold / rangeDays : 0;
+      const turnoverDays =
+        dailyVelocity > 0
+          ? Math.round(inventory / dailyVelocity)
+          : rangeDays * ZERO_SALES_TURNOVER_MULTIPLIER;
+
+      return {
+        productId,
+        inventory,
+        unitsSold,
+        turnoverDays,
+      };
+    })
+    .filter((item) => item.inventory > 0)
+    .sort((a, b) => b.turnoverDays - a.turnoverDays)
+    .slice(0, normalizedLimit);
+
+  const productIds = new Set<number>();
+  for (const candidate of bestSellerCandidates) productIds.add(candidate.productId);
+  for (const candidate of slowMoverCandidates) productIds.add(candidate.productId);
+
+  const products = productIds.size
+    ? await prisma.product.findMany({
+        where: { id: { in: Array.from(productIds) } },
+        select: {
+          id: true,
+          name: true,
+          category: { select: { name: true } },
+        },
+      })
+    : [];
+
+  const productMap = new Map<number, (typeof products)[number]>();
+  for (const product of products) {
+    productMap.set(product.id, product);
+  }
+
+  const bestSellers: DashboardInventoryBestSeller[] = bestSellerCandidates.map((candidate) => {
+    const product = productMap.get(candidate.productId);
+    const inventory = inventoryMap.get(candidate.productId) ?? 0;
+    const rawConversion = totalOrders > 0 ? (candidate.orderCount / totalOrders) * 100 : 0;
+
+    return {
+      productId: candidate.productId,
+      name: product?.name ?? `Sản phẩm #${candidate.productId}`,
+      category: product?.category?.name ?? null,
+      inventory,
+      revenue: Math.round(candidate.revenue),
+      orders: candidate.orderCount,
+      conversion: Number(rawConversion.toFixed(1)),
+    };
+  });
+
+  const slowMovers: DashboardInventorySlowMover[] = slowMoverCandidates.map((candidate) => {
+    const product = productMap.get(candidate.productId);
+    return {
+      productId: candidate.productId,
+      name: product?.name ?? `Sản phẩm #${candidate.productId}`,
+      category: product?.category?.name ?? null,
+      inventory: candidate.inventory,
+      turnoverDays: candidate.turnoverDays,
+      unitsSold: candidate.unitsSold,
+    };
+  });
+
+  const alertsMap = new Map<string, DashboardInventoryAlert>();
+
+  for (const bestSeller of bestSellers) {
+    if (bestSeller.inventory <= LOW_STOCK_THRESHOLD) {
+      const severity = bestSeller.inventory <= CRITICAL_STOCK_THRESHOLD ? "high" : "medium";
+      const id = `inventory-low-${bestSeller.productId}`;
+      alertsMap.set(id, {
+        id,
+        type: "inventory",
+        severity,
+        title: `Tồn kho thấp - ${bestSeller.name}`,
+        description: `Chỉ còn ${bestSeller.inventory} sản phẩm khả dụng trong kho.`,
+        productId: bestSeller.productId,
+      });
+    }
+  }
+
+  // for (const slowMover of slowMovers) {
+  //   if (slowMover.turnoverDays >= SLOW_TURNOVER_ALERT_THRESHOLD) {
+  //     const id = `inventory-slow-${slowMover.productId}`;
+  //     alertsMap.set(id, {
+  //       id,
+  //       type: "performance",
+  //       severity: "medium",
+  //       title: `Vòng quay chậm - ${slowMover.name}`,
+  //       description: `Ước tính ${slowMover.turnoverDays} ngày để quay vòng tồn kho hiện tại.`,
+  //       productId: slowMover.productId,
+  //     });
+  //   }
+  // }
+
+  const alerts = Array.from(alertsMap.values());
+
+  return {
+    range,
+    generatedAt: new Date().toISOString(),
+    bestSellers,
+    slowMovers,
+    alerts,
   };
 };

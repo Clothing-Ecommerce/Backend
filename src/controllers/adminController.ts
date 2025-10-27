@@ -5,6 +5,7 @@ import {
   getWardsByDistrict,
   getDashboardOverview,
   DashboardTimeRange,
+  getDashboardInventory,
 } from "../services/adminService";
 
 const DASHBOARD_RANGES = new Set<DashboardTimeRange>(["today", "week", "month", "quarter", "year"]);
@@ -55,5 +56,23 @@ export const getDashboardOverviewController = async (req: Request, res: Response
   } catch (error) {
     console.error("Failed to get dashboard overview", error);
     return res.status(500).json({ message: "Không thể lấy số liệu dashboard" });
+  }
+};
+
+export const getDashboardInventoryController = async (req: Request, res: Response) => {
+  const rangeParam = String(req.query.range || "week") as DashboardTimeRange;
+  if (!DASHBOARD_RANGES.has(rangeParam)) {
+    return res.status(400).json({ message: "Khoảng thời gian không hợp lệ" });
+  }
+
+  const limitParam = Number(req.query.limit ?? 3);
+  const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.floor(limitParam) : undefined;
+
+  try {
+    const inventory = await getDashboardInventory(rangeParam, limit);
+    return res.status(200).json(inventory);
+  } catch (error) {
+    console.error("Failed to get dashboard inventory", error);
+    return res.status(500).json({ message: "Không thể lấy dữ liệu tồn kho" });
   }
 };
