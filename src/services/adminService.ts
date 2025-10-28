@@ -1,4 +1,4 @@
-import { OrderStatus, Prisma } from "@prisma/client";
+import { OrderStatus, PaymentMethod, Prisma } from "@prisma/client";
 import prisma from "../database/prismaClient";
 
 export type DashboardTimeRange = "today" | "week" | "month" | "quarter" | "year";
@@ -144,6 +144,132 @@ const LOW_STOCK_THRESHOLD = 50;
 const CRITICAL_STOCK_THRESHOLD = 10;
 // const SLOW_TURNOVER_ALERT_THRESHOLD = 60;
 const ZERO_SALES_TURNOVER_MULTIPLIER = 10;
+
+export type AdminOrderStatus =
+  | "pending"
+  | "processing"
+  | "packed"
+  | "shipping"
+  | "completed"
+  | "cancelled"
+  | "refunded";
+
+export type AdminOrderPaymentDisplay = "COD" | "Online";
+
+const ADMIN_STATUS_LABELS: Record<AdminOrderStatus, string> = {
+  pending: "Chờ xác nhận",
+  processing: "Đang xử lý",
+  packed: "Đã đóng gói",
+  shipping: "Đang giao",
+  completed: "Hoàn tất",
+  cancelled: "Đã huỷ",
+  refunded: "Hoàn tiền",
+};
+
+const ORDER_STATUS_TO_ADMIN_STATUS: Record<OrderStatus, AdminOrderStatus> = {
+  [OrderStatus.PENDING]: "pending",
+  [OrderStatus.CONFIRMED]: "processing",
+  [OrderStatus.PAID]: "processing",
+  [OrderStatus.FULFILLING]: "packed",
+  [OrderStatus.SHIPPED]: "shipping",
+  [OrderStatus.COMPLETED]: "completed",
+  [OrderStatus.CANCELLED]: "cancelled",
+  [OrderStatus.REFUNDED]: "refunded",
+};
+
+const ADMIN_STATUS_TO_ORDER_STATUS: Record<AdminOrderStatus, OrderStatus[]> = {
+  pending: [OrderStatus.PENDING],
+  processing: [OrderStatus.CONFIRMED, OrderStatus.PAID],
+  packed: [OrderStatus.FULFILLING],
+  shipping: [OrderStatus.SHIPPED],
+  completed: [OrderStatus.COMPLETED],
+  cancelled: [OrderStatus.CANCELLED],
+  refunded: [OrderStatus.REFUNDED],
+};
+
+const FULFILLMENT_STATUSES = new Set<OrderStatus>([
+  OrderStatus.FULFILLING,
+  OrderStatus.SHIPPED,
+  OrderStatus.COMPLETED,
+]);
+
+const RETURN_STATUSES = new Set<OrderStatus>([
+  OrderStatus.CANCELLED,
+  OrderStatus.REFUNDED,
+]);
+
+const ORDER_CODE_PREFIX = "ORD-";
+
+const formatOrderCode = (orderId: number) =>
+  `${ORDER_CODE_PREFIX}${orderId.toString().padStart(9, "0")}`;
+
+const toAdminStatus = (status: OrderStatus): AdminOrderStatus =>
+  ORDER_STATUS_TO_ADMIN_STATUS[status] ?? "processing";
+
+const mapPaymentMethodToDisplay = (
+  method: PaymentMethod | null | undefined,
+): AdminOrderPaymentDisplay => {
+  if (method === PaymentMethod.COD) return "COD";
+  return "Online";
+};
+
+const computeHourDiff = (start: Date, end: Date): number | null => {
+  const diffMs = end.getTime() - start.getTime();
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return null;
+  return Math.round(diffMs / (1000 * 60 * 60));
+};
+
+type HistoryEntry = { status: OrderStatus; createdAt: Date };
+
+const computeFulfillmentHours = (
+  createdAt: Date,
+  updatedAt: Date,
+  currentStatus: OrderStatus,
+  history: HistoryEntry[],
+): number | null => {
+  const fulfillmentEntry = history.find((entry) =>
+    FULFILLMENT_STATUSES.has(entry.status),
+  );
+  if (fulfillmentEntry) return computeHourDiff(createdAt, fulfillmentEntry.createdAt);
+  if (FULFILLMENT_STATUSES.has(currentStatus)) {
+    return computeHourDiff(createdAt, updatedAt);
+  }
+  return null;
+};
+
+const computeReturnHours = (
+  createdAt: Date,
+  updatedAt: Date,
+  currentStatus: OrderStatus,
+  history: HistoryEntry[],
+): number | null => {
+  const reversed = [...history].reverse();
+  const returnEntry = reversed.find((entry) => RETURN_STATUSES.has(entry.status));
+  if (returnEntry) return computeHourDiff(createdAt, returnEntry.createdAt);
+  if (RETURN_STATUSES.has(currentStatus)) {
+    return computeHourDiff(createdAt, updatedAt);
+  }
+  return null;
+};
+
+const buildAddressLine = (address: {
+  houseNumber: string | null;
+  street: string | null;
+  wardName: string | null;
+  districtName: string | null;
+  provinceName: string | null;
+}) => {
+  const parts = [
+    address.houseNumber,
+    address.street,
+    address.wardName,
+    address.districtName,
+    address.provinceName,
+  ]
+    .map((part) => (part ? part.trim() : ""))
+    .filter((part) => part.length > 0);
+  return parts.join(", ");
+};
 
 export const getProvinces = () =>
   prisma.province.findMany({
@@ -519,5 +645,467 @@ export const getDashboardInventory = async (
     bestSellers,
     slowMovers,
     alerts,
+  };
+};
+
+export interface AdminOrderListOptions {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  statuses?: AdminOrderStatus[];
+}
+
+export interface AdminOrderSummary {
+  id: number;
+  code: string;
+  customer: string;
+  customerEmail: string | null;
+  customerPhone: string | null;
+  value: number;
+  payment: AdminOrderPaymentDisplay;
+  paymentMethod: PaymentMethod | null;
+  status: AdminOrderStatus;
+  rawStatus: OrderStatus;
+  createdAt: string;
+  updatedAt: string;
+  sla: { fulfillment: number | null; return: number | null };
+}
+
+export interface AdminOrderListResult {
+  orders: AdminOrderSummary[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalItems: number;
+    totalPages: number;
+  };
+}
+
+export const listAdminOrders = async (
+  options: AdminOrderListOptions = {},
+): Promise<AdminOrderListResult> => {
+  const page = Number.isFinite(options.page) && options.page && options.page > 0 ? Math.floor(options.page) : 1;
+  const rawPageSize = Number.isFinite(options.pageSize) && options.pageSize && options.pageSize > 0 ? Math.floor(options.pageSize) : 20;
+  const pageSize = Math.min(rawPageSize, 100);
+
+  const where: Prisma.OrderWhereInput = {};
+
+  if (options.statuses && options.statuses.length) {
+    const prismaStatuses = new Set<OrderStatus>();
+    for (const status of options.statuses) {
+      const mapped = ADMIN_STATUS_TO_ORDER_STATUS[status];
+      if (mapped) {
+        for (const dbStatus of mapped) prismaStatuses.add(dbStatus);
+      }
+    }
+    if (prismaStatuses.size) {
+      where.status = { in: Array.from(prismaStatuses) };
+    }
+  }
+
+  if (typeof options.search === "string" && options.search.trim().length) {
+    const search = options.search.trim();
+    const digitPart = search.replace(/[^0-9]/g, "");
+    const conditions: Prisma.OrderWhereInput[] = [
+      { user: { username: { contains: search, mode: "insensitive" } } },
+      { user: { email: { contains: search, mode: "insensitive" } } },
+    ];
+    if (digitPart.length) {
+      const numericId = Number.parseInt(digitPart, 10);
+      if (Number.isFinite(numericId)) {
+        conditions.push({ id: numericId });
+      }
+    }
+    where.OR = conditions;
+  }
+
+  const [orders, totalItems] = await prisma.$transaction([
+    prisma.order.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+        total: true,
+        user: {
+          select: {
+            id: true,
+            username: true,
+            email: true,
+            phone: true,
+          },
+        },
+        paymentSuccess: { select: { method: true } },
+        payments: {
+          select: { method: true, createdAt: true },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
+        statusHistory: {
+          select: { status: true, createdAt: true },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    }),
+    prisma.order.count({ where }),
+  ]);
+
+  const summaries: AdminOrderSummary[] = orders.map((order) => {
+    const adminStatus = toAdminStatus(order.status);
+    const paymentMethod = order.paymentSuccess?.method ?? order.payments[0]?.method ?? null;
+    const customerName = order.user?.username?.trim()
+      ? order.user.username.trim()
+      : order.user?.email?.trim()
+      ? order.user.email.trim()
+      : `Khách hàng #${order.user?.id ?? order.id}`;
+
+    return {
+      id: order.id,
+      code: formatOrderCode(order.id),
+      customer: customerName,
+      customerEmail: order.user?.email ?? null,
+      customerPhone: order.user?.phone ?? null,
+      value: decimalToNumber(order.total),
+      payment: mapPaymentMethodToDisplay(paymentMethod),
+      paymentMethod,
+      status: adminStatus,
+      rawStatus: order.status,
+      createdAt: order.createdAt.toISOString(),
+      updatedAt: order.updatedAt.toISOString(),
+      sla: {
+        fulfillment: computeFulfillmentHours(
+          order.createdAt,
+          order.updatedAt,
+          order.status,
+          order.statusHistory,
+        ),
+        return: computeReturnHours(
+          order.createdAt,
+          order.updatedAt,
+          order.status,
+          order.statusHistory,
+        ),
+      },
+    };
+  });
+
+  const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize);
+  
+  return {
+    orders: summaries,
+    pagination: {
+      page,
+      pageSize,
+      totalItems,
+      totalPages,
+    },
+  };
+};
+
+export interface AdminOrderDetailItem {
+  id: number;
+  productId: number;
+  variantId: number;
+  name: string;
+  sku: string | null;
+  quantity: number;
+  price: number;
+  total: number;
+  taxAmount: number;
+}
+
+export interface AdminOrderTimelineEntry {
+  status: AdminOrderStatus;
+  rawStatus: OrderStatus;
+  label: string;
+  at: string;
+  note: string | null;
+  actor: { id: number | null; name: string | null } | null;
+}
+
+export interface AdminOrderDetailResponse {
+  id: number;
+  code: string;
+  status: AdminOrderStatus;
+  rawStatus: OrderStatus;
+  createdAt: string;
+  updatedAt: string;
+  customer: {
+    id: number;
+    name: string;
+    email: string | null;
+    phone: string | null;
+  };
+  payment: {
+    method: PaymentMethod | null;
+    display: AdminOrderPaymentDisplay;
+  };
+  totals: {
+    subtotal: number;
+    discount: number;
+    shipping: number;
+    tax: number;
+    total: number;
+  };
+  address: {
+    id: number;
+    recipient: string;
+    phone: string | null;
+    company: string | null;
+    line: string;
+    detail: {
+      houseNumber: string | null;
+      street: string | null;
+      ward: string | null;
+      district: string | null;
+      province: string | null;
+      postalCode: string | null;
+    };
+    notes: string | null;
+  } | null;
+  items: AdminOrderDetailItem[];
+  timeline: AdminOrderTimelineEntry[];
+  notes: string[];
+  coupons: { code: string; discount: number; freeShipping: boolean }[];
+  sla: { fulfillment: number | null; return: number | null };
+}
+
+export const getAdminOrderDetail = async (
+  orderId: number,
+): Promise<AdminOrderDetailResponse | null> => {
+  if (!Number.isFinite(orderId) || orderId <= 0) return null;
+
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      user: {
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          phone: true,
+        },
+      },
+      address: {
+        select: {
+          id: true,
+          recipient: true,
+          phone: true,
+          company: true,
+          houseNumber: true,
+          street: true,
+          wardName: true,
+          districtName: true,
+          provinceName: true,
+          postalCode: true,
+          notes: true,
+        },
+      },
+      items: {
+        select: {
+          id: true,
+          variantId: true,
+          quantity: true,
+          priceAtTime: true,
+          taxAmount: true,
+          variant: {
+            select: {
+              id: true,
+              sku: true,
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      },
+      statusHistory: {
+        select: {
+          status: true,
+          createdAt: true,
+          note: true,
+          user: {
+            select: {
+              id: true,
+              username: true,
+              email: true,
+            },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      },
+      paymentSuccess: { select: { method: true } },
+      payments: {
+        select: { method: true, createdAt: true },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+      coupons: {
+        select: {
+          appliedValue: true,
+          coupon: {
+            select: {
+              code: true,
+              freeShipping: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!order) return null;
+
+  const adminStatus = toAdminStatus(order.status);
+  const paymentMethod = order.paymentSuccess?.method ?? order.payments[0]?.method ?? null;
+  const paymentDisplay = mapPaymentMethodToDisplay(paymentMethod);
+  
+  const items: AdminOrderDetailItem[] = order.items.map((item) => {
+    const unitPrice = decimalToNumber(item.priceAtTime);
+    const taxAmount = decimalToNumber(item.taxAmount ?? 0);
+    return {
+      id: item.id,
+      productId: item.variant.product.id,
+      variantId: item.variant.id,
+      name: item.variant.product.name,
+      sku: item.variant.sku ?? null,
+      quantity: item.quantity,
+      price: unitPrice,
+      total: unitPrice * item.quantity,
+      taxAmount,
+    };
+  });
+
+  const taxTotal = items.reduce((sum, item) => sum + item.taxAmount, 0);
+
+  const timelineEntries: AdminOrderTimelineEntry[] = [];
+  const creationActorName = order.user.username?.trim() || order.user.email?.trim() || null;
+
+  timelineEntries.push({
+    status: toAdminStatus(OrderStatus.PENDING),
+    rawStatus: OrderStatus.PENDING,
+    label: ADMIN_STATUS_LABELS.pending,
+    at: order.createdAt.toISOString(),
+    note: order.notes ?? null,
+    actor: { id: order.user.id, name: creationActorName },
+  });
+
+  for (const entry of order.statusHistory) {
+    const adminTimelineStatus = toAdminStatus(entry.status);
+    timelineEntries.push({
+      status: adminTimelineStatus,
+      rawStatus: entry.status,
+      label: ADMIN_STATUS_LABELS[adminTimelineStatus],
+      at: entry.createdAt.toISOString(),
+      note: entry.note ?? null,
+      actor: entry.user
+        ? {
+            id: entry.user.id,
+            name:
+              entry.user.username?.trim() || entry.user.email?.trim() || null,
+          }
+        : null,
+    });
+  }
+
+  const lastTimelineStatus = timelineEntries.length
+    ? timelineEntries[timelineEntries.length - 1].status
+    : null;
+  if (lastTimelineStatus !== adminStatus) {
+    timelineEntries.push({
+      status: adminStatus,
+      rawStatus: order.status,
+      label: ADMIN_STATUS_LABELS[adminStatus],
+      at: order.updatedAt.toISOString(),
+      note: null,
+      actor: null,
+    });
+  }
+
+  timelineEntries.sort((a, b) => a.at.localeCompare(b.at));
+
+  const notes: string[] = [];
+  if (order.notes) {
+    const splitted = order.notes
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    notes.push(...splitted);
+  }
+  for (const entry of order.statusHistory) {
+    if (entry.note) notes.push(entry.note);
+  }
+
+  return {
+    id: order.id,
+    code: formatOrderCode(order.id),
+    status: adminStatus,
+    rawStatus: order.status,
+    createdAt: order.createdAt.toISOString(),
+    updatedAt: order.updatedAt.toISOString(),
+    customer: {
+      id: order.user.id,
+      name: order.user.username,
+      email: order.user.email,
+      phone: order.user.phone,
+    },
+    payment: {
+      method: paymentMethod,
+      display: paymentDisplay,
+    },
+    totals: {
+      subtotal: decimalToNumber(order.subtotal),
+      discount: decimalToNumber(order.discount),
+      shipping: decimalToNumber(order.shippingFee),
+      tax: taxTotal,
+      total: decimalToNumber(order.total),
+    },
+    address: order.address
+      ? {
+          id: order.address.id,
+          recipient: order.address.recipient,
+          phone: order.address.phone ?? null,
+          company: order.address.company ?? null,
+          line: buildAddressLine(order.address),
+          detail: {
+            houseNumber: order.address.houseNumber ?? null,
+            street: order.address.street ?? null,
+            ward: order.address.wardName ?? null,
+            district: order.address.districtName ?? null,
+            province: order.address.provinceName ?? null,
+            postalCode: order.address.postalCode ?? null,
+          },
+          notes: order.address.notes ?? null,
+        }
+      : null,
+    items,
+    timeline: timelineEntries,
+    notes,
+    coupons: order.coupons.map((coupon) => ({
+      code: coupon.coupon.code,
+      discount: decimalToNumber(coupon.appliedValue),
+      freeShipping: coupon.coupon.freeShipping,
+    })),
+    sla: {
+      fulfillment: computeFulfillmentHours(
+        order.createdAt,
+        order.updatedAt,
+        order.status,
+        order.statusHistory,
+      ),
+      return: computeReturnHours(
+        order.createdAt,
+        order.updatedAt,
+        order.status,
+        order.statusHistory,
+      ),
+    },
   };
 };
