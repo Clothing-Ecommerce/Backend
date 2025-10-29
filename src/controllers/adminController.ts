@@ -8,8 +8,11 @@ import {
   getDashboardInventory,
   listAdminOrders,
   getAdminOrderDetail,
+  updateAdminOrderStatus,
+  AdminOrderActionError,
   type AdminOrderStatus,
 } from "../services/adminService";
+import type { AuthenticatedRequest } from "../middleware/authMiddleware";
 
 const DASHBOARD_RANGES = new Set<DashboardTimeRange>(["today", "week", "month", "quarter", "year"]);
 const ADMIN_ORDER_STATUSES = new Set<AdminOrderStatus>([
@@ -162,5 +165,55 @@ export const getAdminOrderDetailController = async (req: Request, res: Response)
   } catch (error) {
     console.error("Failed to get admin order detail", error);
     return res.status(500).json({ message: "Không thể tải chi tiết đơn hàng" });
+  }
+};
+
+export const updateAdminOrderStatusController = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  const rawId = String(req.params.orderId || "");
+  const orderId = normalizeOrderIdParam(rawId);
+  if (!orderId) {
+    return res.status(400).json({ message: "orderId không hợp lệ" });
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const statusRaw = typeof body.status === "string" ? body.status.trim().toLowerCase() : "";
+
+  if (!statusRaw || !ADMIN_ORDER_STATUSES.has(statusRaw as AdminOrderStatus)) {
+    return res.status(400).json({ message: "Trạng thái không hợp lệ" });
+  }
+
+  const note = typeof body.note === "string" ? body.note : undefined;
+  const actorId =
+    typeof req.user?.userId === "number" ? (req.user.userId as number) : undefined;
+
+  try {
+    const result = await updateAdminOrderStatus({
+      orderId,
+      status: statusRaw as AdminOrderStatus,
+      note,
+      actorId,
+    });
+
+    return res.status(200).json({
+      message: "Cập nhật trạng thái thành công",
+      order: result.detail,
+      summary: result.summary,
+      status: result.status,
+      rawStatus: result.rawStatus,
+      changed: result.changed,
+    });
+  } catch (error) {
+    if (error instanceof AdminOrderActionError) {
+      return res
+        .status(error.httpStatus)
+        .json({ message: error.message, code: error.code });
+    }
+    console.error("Failed to update admin order status", error);
+    return res
+      .status(500)
+      .json({ message: "Không thể cập nhật trạng thái đơn hàng" });
   }
 };

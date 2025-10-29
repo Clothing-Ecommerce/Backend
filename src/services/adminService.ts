@@ -198,6 +198,111 @@ const RETURN_STATUSES = new Set<OrderStatus>([
   OrderStatus.REFUNDED,
 ]);
 
+const ORDER_STATUS_SEQUENCE: OrderStatus[] = [
+  OrderStatus.PENDING,
+  OrderStatus.CONFIRMED,
+  OrderStatus.PAID,
+  OrderStatus.FULFILLING,
+  OrderStatus.SHIPPED,
+  OrderStatus.COMPLETED,
+  OrderStatus.CANCELLED,
+  OrderStatus.REFUNDED,
+];
+
+const ORDER_STATUS_RANK = ORDER_STATUS_SEQUENCE.reduce(
+  (map, status, index) => map.set(status, index),
+  new Map<OrderStatus, number>(),
+);
+
+export class AdminOrderActionError extends Error {
+  code: string;
+  httpStatus: number;
+
+  constructor(code: string, message: string, httpStatus = 400) {
+    super(message);
+    this.code = code;
+    this.httpStatus = httpStatus;
+  }
+}
+
+const ORDER_SUMMARY_SELECT = {
+  id: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
+  total: true,
+  user: {
+    select: {
+      id: true,
+      username: true,
+      email: true,
+      phone: true,
+    },
+  },
+  paymentSuccess: { select: { method: true } },
+  payments: {
+    select: { method: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+    take: 1,
+  },
+  statusHistory: {
+    select: { status: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+  },
+} as const;
+
+type OrderSummaryRecord = Prisma.OrderGetPayload<{ select: typeof ORDER_SUMMARY_SELECT }>;
+
+const mapOrderToAdminSummary = (order: OrderSummaryRecord): AdminOrderSummary => {
+  const adminStatus = toAdminStatus(order.status);
+  const paymentMethod = order.paymentSuccess?.method ?? order.payments[0]?.method ?? null;
+  const customerName = order.user?.username?.trim()
+    ? order.user.username.trim()
+    : order.user?.email?.trim()
+    ? order.user.email.trim()
+    : `Khách hàng #${order.user?.id ?? order.id}`;
+
+  return {
+    id: order.id,
+    code: formatOrderCode(order.id),
+    customer: customerName,
+    customerEmail: order.user?.email ?? null,
+    customerPhone: order.user?.phone ?? null,
+    value: decimalToNumber(order.total),
+    payment: mapPaymentMethodToDisplay(paymentMethod),
+    paymentMethod,
+    status: adminStatus,
+    rawStatus: order.status,
+    createdAt: order.createdAt.toISOString(),
+    updatedAt: order.updatedAt.toISOString(),
+    sla: {
+      fulfillment: computeFulfillmentHours(
+        order.createdAt,
+        order.updatedAt,
+        order.status,
+        order.statusHistory,
+      ),
+      return: computeReturnHours(order.createdAt, order.updatedAt, order.status, order.statusHistory),
+    },
+  };
+};
+
+const pickTargetOrderStatus = (current: OrderStatus, candidates: OrderStatus[]): OrderStatus => {
+  if (!candidates.length) return current;
+  if (candidates.includes(current)) return current;
+
+  const currentRank = ORDER_STATUS_RANK.get(current) ?? 0;
+  const sortedCandidates = [...candidates].sort(
+    (a, b) => (ORDER_STATUS_RANK.get(a) ?? 0) - (ORDER_STATUS_RANK.get(b) ?? 0),
+  );
+
+  const forwardCandidate = sortedCandidates.find(
+    (status) => (ORDER_STATUS_RANK.get(status) ?? 0) >= currentRank,
+  );
+
+  return forwardCandidate ?? sortedCandidates[sortedCandidates.length - 1];
+};
+
 const ORDER_CODE_PREFIX = "ORD-";
 
 const formatOrderCode = (orderId: number) =>
@@ -725,73 +830,12 @@ export const listAdminOrders = async (
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
-      select: {
-        id: true,
-        status: true,
-        createdAt: true,
-        updatedAt: true,
-        total: true,
-        user: {
-          select: {
-            id: true,
-            username: true,
-            email: true,
-            phone: true,
-          },
-        },
-        paymentSuccess: { select: { method: true } },
-        payments: {
-          select: { method: true, createdAt: true },
-          orderBy: { createdAt: "desc" },
-          take: 1,
-        },
-        statusHistory: {
-          select: { status: true, createdAt: true },
-          orderBy: { createdAt: "asc" },
-        },
-      },
+      select: ORDER_SUMMARY_SELECT,
     }),
     prisma.order.count({ where }),
   ]);
 
-  const summaries: AdminOrderSummary[] = orders.map((order) => {
-    const adminStatus = toAdminStatus(order.status);
-    const paymentMethod = order.paymentSuccess?.method ?? order.payments[0]?.method ?? null;
-    const customerName = order.user?.username?.trim()
-      ? order.user.username.trim()
-      : order.user?.email?.trim()
-      ? order.user.email.trim()
-      : `Khách hàng #${order.user?.id ?? order.id}`;
-
-    return {
-      id: order.id,
-      code: formatOrderCode(order.id),
-      customer: customerName,
-      customerEmail: order.user?.email ?? null,
-      customerPhone: order.user?.phone ?? null,
-      value: decimalToNumber(order.total),
-      payment: mapPaymentMethodToDisplay(paymentMethod),
-      paymentMethod,
-      status: adminStatus,
-      rawStatus: order.status,
-      createdAt: order.createdAt.toISOString(),
-      updatedAt: order.updatedAt.toISOString(),
-      sla: {
-        fulfillment: computeFulfillmentHours(
-          order.createdAt,
-          order.updatedAt,
-          order.status,
-          order.statusHistory,
-        ),
-        return: computeReturnHours(
-          order.createdAt,
-          order.updatedAt,
-          order.status,
-          order.statusHistory,
-        ),
-      },
-    };
-  });
+  const summaries: AdminOrderSummary[] = orders.map(mapOrderToAdminSummary);
 
   const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize);
   
@@ -1107,5 +1151,116 @@ export const getAdminOrderDetail = async (
         order.statusHistory,
       ),
     },
+  };
+};
+
+export interface UpdateAdminOrderStatusInput {
+  orderId: number;
+  status: AdminOrderStatus;
+  note?: string | null;
+  actorId?: number | null;
+}
+
+export interface UpdateAdminOrderStatusResult {
+  summary: AdminOrderSummary;
+  detail: AdminOrderDetailResponse;
+  status: AdminOrderStatus;
+  rawStatus: OrderStatus;
+  changed: boolean;
+}
+
+export const updateAdminOrderStatus = async (
+  input: UpdateAdminOrderStatusInput,
+): Promise<UpdateAdminOrderStatusResult> => {
+  const { orderId, status, note, actorId } = input;
+
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new AdminOrderActionError("INVALID_ORDER_ID", "orderId không hợp lệ", 400);
+  }
+
+  const prismaStatuses = ADMIN_STATUS_TO_ORDER_STATUS[status];
+  if (!prismaStatuses || !prismaStatuses.length) {
+    throw new AdminOrderActionError("INVALID_STATUS", "Trạng thái không hợp lệ", 400);
+  }
+
+  const normalizedNote = typeof note === "string" ? note.trim() : "";
+  const noteValue = normalizedNote.length ? normalizedNote : null;
+  const actorUserId = typeof actorId === "number" && Number.isFinite(actorId) ? actorId : null;
+
+  const updateResult = await prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        status: true,
+        items: { select: { variantId: true, quantity: true } },
+      },
+    });
+
+    if (!order) {
+      throw new AdminOrderActionError("ORDER_NOT_FOUND", "Không tìm thấy đơn hàng", 404);
+    }
+
+    const targetStatus = pickTargetOrderStatus(order.status, prismaStatuses);
+    const changed = targetStatus !== order.status;
+
+    if (changed) {
+      await tx.order.update({
+        where: { id: orderId },
+        data: { status: targetStatus },
+      });
+
+      await tx.orderStatusHistory.create({
+        data: {
+          orderId,
+          status: targetStatus,
+          note: noteValue,
+          userId: actorUserId,
+        },
+      });
+
+      if (targetStatus === OrderStatus.CANCELLED && order.status !== OrderStatus.CANCELLED) {
+        for (const item of order.items) {
+          await tx.productVariant.update({
+            where: { id: item.variantId },
+            data: { stock: { increment: item.quantity } },
+          });
+        }
+      }
+    } else if (noteValue) {
+      await tx.orderStatusHistory.create({
+        data: {
+          orderId,
+          status: targetStatus,
+          note: noteValue,
+          userId: actorUserId,
+        },
+      });
+    }
+
+    return { targetStatus, changed };
+  });
+
+  const [summaryRecord, detail] = await Promise.all([
+    prisma.order.findUnique({
+      where: { id: orderId },
+      select: ORDER_SUMMARY_SELECT,
+    }),
+    getAdminOrderDetail(orderId),
+  ]);
+
+  if (!summaryRecord || !detail) {
+    throw new AdminOrderActionError("ORDER_NOT_FOUND", "Không tìm thấy đơn hàng", 404);
+  }
+
+  const summary = mapOrderToAdminSummary(summaryRecord);
+  const rawStatus = updateResult.targetStatus;
+
+  return {
+    summary,
+    detail,
+    status: toAdminStatus(rawStatus),
+    rawStatus,
+    changed: updateResult.changed,
   };
 };
