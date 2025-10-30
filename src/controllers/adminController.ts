@@ -142,7 +142,30 @@ export const listAdminOrdersController = async (req: Request, res: Response) => 
       search,
       statuses,
     });
-    return res.status(200).json(result);
+    const { pagination } = result;
+    const { page: currentPage, pageSize: currentPageSize, totalPages } = pagination;
+
+    const buildPageLink = (targetPage: number): string => {
+      const host = req.get("host");
+      const origin = `${req.protocol}://${host ?? "localhost"}`;
+      const url = new URL(req.originalUrl, origin);
+      url.searchParams.set("page", String(targetPage));
+      url.searchParams.set("pageSize", String(currentPageSize));
+      return host ? url.toString() : `${url.pathname}${url.search}`;
+    };
+
+    const hasPages = totalPages > 0;
+    const previousLink = hasPages && currentPage > 1 ? buildPageLink(currentPage - 1) : null;
+    const nextLink = hasPages && currentPage < totalPages ? buildPageLink(currentPage + 1) : null;
+
+    return res.status(200).json({
+      ...result,
+      pagination: {
+        ...pagination,
+        previousLink,
+        nextLink,
+      },
+    });
   } catch (error) {
     console.error("Failed to list admin orders", error);
     return res.status(500).json({ message: "Không thể tải danh sách đơn hàng" });
