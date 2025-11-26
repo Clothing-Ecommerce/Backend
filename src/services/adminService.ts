@@ -757,6 +757,50 @@ export const getDashboardInventory = async (
 
 export type AdminProductStockStatus = "in-stock" | "low-stock" | "out-of-stock";
 
+export interface AdminProductImageInput {
+  url: string;
+  alt?: string | null;
+  isPrimary?: boolean;
+  sortOrder?: number;
+}
+
+export interface AdminProductVariantInput {
+  sku?: string | null;
+  price?: number | null;
+  stock?: number | null;
+  sizeId?: number | null;
+  colorId?: number | null;
+  isActive?: boolean | null;
+}
+
+export interface AdminCreateProductPayload {
+  name: string;
+  slug: string;
+  description?: string | null;
+  basePrice: number;
+  categoryId: number;
+  brandId?: number | null;
+  features?: Record<string, unknown> | null;
+  specifications?: Record<string, unknown> | null;
+  images?: AdminProductImageInput[];
+  variants?: AdminProductVariantInput[];
+}
+
+export interface AdminCreateProductResult {
+  id: number;
+  name: string;
+  slug: string;
+  category: { id: number; name: string };
+  brand: { id: number; name: string } | null;
+  price: number;
+  totalStock: number;
+  stockStatus: AdminProductStockStatus;
+  variants: number;
+  imageUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AdminProductListOptions {
   page?: number;
   pageSize?: number;
@@ -789,6 +833,130 @@ export interface AdminProductListResponse {
     totalPages: number;
   };
 }
+
+export const createAdminProduct = async (
+  payload: AdminCreateProductPayload,
+): Promise<AdminCreateProductResult> => {
+  const productId = await prisma.$transaction(async (tx) => {
+    const product = await tx.product.create({
+      data: {
+        name: payload.name,
+        slug: payload.slug,
+        description: payload.description ?? null,
+        basePrice: new Prisma.Decimal(payload.basePrice),
+        categoryId: payload.categoryId,
+        brandId: payload.brandId ?? undefined,
+        features: payload.features ?? undefined,
+        specifications: payload.specifications ?? undefined,
+      },
+    });
+
+    const images = (payload.images ?? [])
+      .filter((image) => typeof image.url === "string" && image.url.trim().length)
+      .map((image, index) => ({
+        productId: product.id,
+        url: image.url.trim(),
+        alt: image.alt ?? null,
+        isPrimary: Boolean(image.isPrimary),
+        sortOrder: Number.isFinite(image.sortOrder)
+          ? Math.floor(image.sortOrder as number)
+          : index,
+      }));
+
+    if (images.length) {
+      const hasPrimary = images.some((image) => image.isPrimary);
+      if (!hasPrimary) {
+        images[0].isPrimary = true;
+      }
+
+      await tx.productImage.createMany({ data: images });
+    }
+
+    const variants = (payload.variants ?? []).map((variant) => ({
+      productId: product.id,
+      sku: variant.sku?.trim() || null,
+      price:
+        typeof variant.price === "number" && Number.isFinite(variant.price)
+          ? new Prisma.Decimal(variant.price)
+          : null,
+      stock:
+        typeof variant.stock === "number" && Number.isFinite(variant.stock)
+          ? Math.max(0, Math.floor(variant.stock))
+          : 0,
+      sizeId:
+        typeof variant.sizeId === "number" && Number.isFinite(variant.sizeId)
+          ? Math.floor(variant.sizeId)
+          : null,
+      colorId:
+        typeof variant.colorId === "number" && Number.isFinite(variant.colorId)
+          ? Math.floor(variant.colorId)
+          : null,
+      isActive: variant.isActive ?? true,
+    }));
+
+    if (variants.length) {
+      await tx.productVariant.createMany({ data: variants });
+    }
+
+    return product.id;
+  });
+
+  const created = await prisma.product.findUnique({
+    where: { id: productId },
+    include: {
+      category: { select: { id: true, name: true } },
+      brand: { select: { id: true, name: true } },
+      images: {
+        where: { isPrimary: true },
+        orderBy: { sortOrder: "asc" },
+        take: 1,
+        select: { url: true },
+      },
+      variants: {
+        where: { isActive: true },
+        select: { id: true, stock: true, price: true },
+      },
+    },
+  });
+
+  if (!created) {
+    throw new Error("Không thể lấy thông tin sản phẩm vừa tạo");
+  }
+
+  const totalStock = created.variants.reduce(
+    (sum, variant) => sum + (variant.stock ?? 0),
+    0,
+  );
+  const priceCandidates = created.variants.map((variant) =>
+    decimalToNumber(variant.price ?? created.basePrice),
+  );
+  const price = priceCandidates.length
+    ? Math.min(...priceCandidates)
+    : decimalToNumber(created.basePrice);
+
+  let stockStatus: AdminProductStockStatus = "in-stock";
+  if (totalStock <= 0) {
+    stockStatus = "out-of-stock";
+  } else if (totalStock <= ADMIN_LOW_STOCK_THRESHOLD) {
+    stockStatus = "low-stock";
+  }
+
+  return {
+    id: created.id,
+    name: created.name,
+    slug: created.slug,
+    category: created.category,
+    brand: created.brand,
+    price,
+    totalStock,
+    stockStatus,
+    variants: created.variants.length,
+    imageUrl: created.images[0]?.url ?? null,
+    createdAt: created.createdAt.toISOString(),
+    updatedAt: created.updatedAt.toISOString(),
+  };
+};
+
 
 export const listAdminProducts = async (
   options: AdminProductListOptions = {},

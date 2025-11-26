@@ -13,7 +13,9 @@ import {
   type AdminOrderStatus,
   listAdminProducts,
   type AdminProductStockStatus,
+  createAdminProduct,
 } from "../services/adminService";
+import { Prisma } from "@prisma/client";
 import type { AuthenticatedRequest } from "../middleware/authMiddleware";
 
 const DASHBOARD_RANGES = new Set<DashboardTimeRange>(["today", "week", "month", "quarter", "year"]);
@@ -161,6 +163,90 @@ export const listAdminProductsController = async (req: Request, res: Response) =
   } catch (error) {
     console.error("Failed to list admin products", error);
     return res.status(500).json({ message: "Không thể tải danh sách sản phẩm" });
+  }
+};
+
+export const createAdminProductController = async (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const slug = typeof body.slug === "string" ? body.slug.trim() : "";
+  const basePrice = parseNumeric(body.basePrice);
+  const categoryId = parseNumeric(body.categoryId);
+  const brandIdRaw = parseNumeric(body.brandId);
+  const description = typeof body.description === "string" ? body.description : undefined;
+
+  if (!name) return res.status(400).json({ message: "Thiếu tên sản phẩm" });
+  if (!slug) return res.status(400).json({ message: "Thiếu slug sản phẩm" });
+  if (!basePrice || basePrice <= 0) {
+    return res.status(400).json({ message: "Giá sản phẩm không hợp lệ" });
+  }
+  if (!categoryId || categoryId <= 0) {
+    return res.status(400).json({ message: "Danh mục không hợp lệ" });
+  }
+
+  const safeBasePrice = basePrice as number;
+  const safeCategoryId = categoryId as number;
+  const normalizedBrandId = typeof brandIdRaw === "number" ? brandIdRaw : undefined;
+
+  const features =
+    typeof body.features === "object" && body.features !== null
+      ? (body.features as Record<string, unknown>)
+      : undefined;
+  const specifications =
+    typeof body.specifications === "object" && body.specifications !== null
+      ? (body.specifications as Record<string, unknown>)
+      : undefined;
+
+  const images = Array.isArray(body.images)
+    ? body.images
+        .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+        .map((item) => ({
+          url: typeof item.url === "string" ? item.url : "",
+          alt: typeof item.alt === "string" ? item.alt : null,
+          isPrimary: typeof item.isPrimary === "boolean" ? item.isPrimary : undefined,
+          sortOrder: parseNumeric(item.sortOrder),
+        }))
+        .filter((item) => item.url.trim().length)
+    : undefined;
+
+  const variants = Array.isArray(body.variants)
+    ? body.variants
+        .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+        .map((item) => ({
+          sku: typeof item.sku === "string" ? item.sku : undefined,
+          price: parseNumeric(item.price),
+          stock: parseNumeric(item.stock),
+          sizeId: parseNumeric(item.sizeId),
+          colorId: parseNumeric(item.colorId),
+          isActive: typeof item.isActive === "boolean" ? item.isActive : undefined,
+        }))
+    : undefined;
+
+  try {
+    const product = await createAdminProduct({
+      name,
+      slug,
+      description,
+      basePrice: safeBasePrice,
+      categoryId: safeCategoryId,
+      brandId: normalizedBrandId,
+      features,
+      specifications,
+      images,
+      variants,
+    });
+
+    return res.status(201).json({
+      message: "Tạo sản phẩm thành công",
+      product,
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return res.status(400).json({ message: "Slug đã tồn tại, vui lòng chọn slug khác" });
+    }
+    console.error("Failed to create admin product", error);
+    return res.status(500).json({ message: "Không thể tạo sản phẩm" });
   }
 };
 
