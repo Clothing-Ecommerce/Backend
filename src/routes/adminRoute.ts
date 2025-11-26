@@ -13,6 +13,7 @@ import {
   listAdminCategoriesController,
   getAdminProductDetailController,
   deleteAdminProductController,
+  updateAdminProductController,
 } from "../controllers/adminController";
 
 const router = Router();
@@ -33,6 +34,7 @@ router.patch("/orders/:orderId/status", updateAdminOrderStatusController);
 router.get("/products", listAdminProductsController);
 router.get("/products/:productId", getAdminProductDetailController);
 router.post("/products", createAdminProductController);
+router.patch("/products/:productId", updateAdminProductController);
 router.delete("/products/:productId", deleteAdminProductController);
 
 export default router;

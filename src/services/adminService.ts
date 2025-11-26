@@ -805,6 +805,8 @@ export interface AdminCreateProductPayload {
   variants?: AdminProductVariantInput[];
 }
 
+export interface AdminUpdateProductPayload extends AdminCreateProductPayload {}
+
 export interface AdminCreateProductResult {
   id: number;
   name: string;
@@ -1013,6 +1015,69 @@ export const createAdminProduct = async (
   };
 };
 
+export const updateAdminProduct = async (
+  productId: number,
+  payload: AdminUpdateProductPayload,
+): Promise<AdminProductDetail> => {
+  if (!Number.isFinite(productId) || productId <= 0) {
+    throw new AdminProductActionError("INVALID_PRODUCT_ID", "Mã sản phẩm không hợp lệ", 400);
+  }
+
+  const updatedId = await prisma.$transaction(async (tx) => {
+    const existing = await tx.product.findUnique({ where: { id: Math.floor(productId) } });
+    if (!existing) {
+      throw new AdminProductActionError("PRODUCT_NOT_FOUND", "Không tìm thấy sản phẩm", 404);
+    }
+
+    await tx.product.update({
+      where: { id: existing.id },
+      data: {
+        name: payload.name,
+        slug: payload.slug,
+        description: payload.description ?? null,
+        basePrice: new Prisma.Decimal(payload.basePrice),
+        categoryId: payload.categoryId,
+        brandId: payload.brandId ?? undefined,
+        features: payload.features ?? undefined,
+        specifications: payload.specifications ?? undefined,
+      },
+    });
+
+    if (Array.isArray(payload.images)) {
+      await tx.productImage.deleteMany({ where: { productId: existing.id } });
+
+      const images = payload.images
+        .filter((image) => typeof image.url === "string" && image.url.trim().length)
+        .map((image, index) => ({
+          productId: existing.id,
+          url: image.url.trim(),
+          alt: image.alt ?? null,
+          isPrimary: Boolean(image.isPrimary),
+          sortOrder: Number.isFinite(image.sortOrder)
+            ? Math.floor(image.sortOrder as number)
+            : index,
+        }));
+
+      if (images.length) {
+        const hasPrimary = images.some((image) => image.isPrimary);
+        if (!hasPrimary) {
+          images[0].isPrimary = true;
+        }
+
+        await tx.productImage.createMany({ data: images });
+      }
+    }
+
+    return existing.id;
+  });
+
+  const detail = await getAdminProductDetail(updatedId);
+  if (!detail) {
+    throw new Error("Không thể tải thông tin sản phẩm sau khi cập nhật");
+  }
+
+  return detail;
+};
 
 export const listAdminProducts = async (
   options: AdminProductListOptions = {},
