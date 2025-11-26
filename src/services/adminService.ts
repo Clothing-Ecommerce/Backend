@@ -147,6 +147,14 @@ const ZERO_SALES_TURNOVER_MULTIPLIER = 10;
 
 const ADMIN_LOW_STOCK_THRESHOLD = 30;
 
+export interface AdminCategoryOption {
+  id: number;
+  name: string;
+  slug: string;
+  parentId: number | null;
+  productCount: number;
+}
+
 export type AdminOrderStatus =
   | "pending"
   | "processing"
@@ -1049,6 +1057,27 @@ export const listAdminProducts = async (
       totalPages,
     },
   };
+};
+
+export const listAdminCategories = async (): Promise<AdminCategoryOption[]> => {
+  const categories = await prisma.category.findMany({
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      parentId: true,
+      _count: { select: { products: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  return categories.map((category) => ({
+    id: category.id,
+    name: category.name,
+    slug: category.slug,
+    parentId: category.parentId,
+    productCount: category._count.products,
+  }));
 };
 
 export interface AdminOrderListOptions {

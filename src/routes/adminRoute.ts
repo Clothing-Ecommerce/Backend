@@ -10,6 +10,7 @@ import {
   updateAdminOrderStatusController,
   listAdminProductsController,
   createAdminProductController,
+  listAdminCategoriesController,
 } from "../controllers/adminController";
 
 const router = Router();
@@ -20,6 +21,8 @@ router.get("/wards", listWardsController);
 
 router.get("/dashboard/overview", getDashboardOverviewController);
 router.get("/dashboard/inventory", getDashboardInventoryController);
+
+router.get("/categories", listAdminCategoriesController);
 
 router.get("/orders", listAdminOrdersController);
 router.get("/orders/:orderId", getAdminOrderDetailController);

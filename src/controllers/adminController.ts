@@ -14,6 +14,7 @@ import {
   listAdminProducts,
   type AdminProductStockStatus,
   createAdminProduct,
+  listAdminCategories,
 } from "../services/adminService";
 import { Prisma } from "@prisma/client";
 import type { AuthenticatedRequest } from "../middleware/authMiddleware";
@@ -136,6 +137,16 @@ export const getDashboardInventoryController = async (req: Request, res: Respons
   } catch (error) {
     console.error("Failed to get dashboard inventory", error);
     return res.status(500).json({ message: "Không thể lấy dữ liệu tồn kho" });
+  }
+};
+
+export const listAdminCategoriesController = async (_req: Request, res: Response) => {
+  try {
+    const categories = await listAdminCategories();
+    return res.status(200).json(categories);
+  } catch (error) {
+    console.error("Failed to list admin categories", error);
+    return res.status(500).json({ message: "Không thể tải danh mục" });
   }
 };
 
