@@ -15,6 +15,7 @@ import {
   type AdminProductStockStatus,
   createAdminProduct,
   listAdminCategories,
+  getAdminProductDetail,
 } from "../services/adminService";
 import { Prisma } from "@prisma/client";
 import type { AuthenticatedRequest } from "../middleware/authMiddleware";
@@ -174,6 +175,27 @@ export const listAdminProductsController = async (req: Request, res: Response) =
   } catch (error) {
     console.error("Failed to list admin products", error);
     return res.status(500).json({ message: "Không thể tải danh sách sản phẩm" });
+  }
+};
+
+export const getAdminProductDetailController = async (req: Request, res: Response) => {
+  const rawId = req.params.productId ?? req.params.id;
+  const productId = Number.parseInt(String(rawId ?? ""), 10);
+
+  if (!Number.isFinite(productId) || productId <= 0) {
+    return res.status(400).json({ message: "Mã sản phẩm không hợp lệ" });
+  }
+
+  try {
+    const product = await getAdminProductDetail(productId);
+    if (!product) {
+      return res.status(404).json({ message: "Không tìm thấy sản phẩm" });
+    }
+
+    return res.status(200).json(product);
+  } catch (error) {
+    console.error("Failed to get admin product detail", error);
+    return res.status(500).json({ message: "Không thể tải thông tin sản phẩm" });
   }
 };
 

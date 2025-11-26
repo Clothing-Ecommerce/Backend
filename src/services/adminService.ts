@@ -842,6 +842,43 @@ export interface AdminProductListResponse {
   };
 }
 
+export interface AdminProductDetailVariant {
+  id: number;
+  sku: string | null;
+  price: number;
+  stock: number;
+  sizeId: number | null;
+  sizeName: string | null;
+  colorId: number | null;
+  colorName: string | null;
+  colorHex: string | null;
+  isActive: boolean;
+}
+
+export interface AdminProductDetailImage {
+  id: number;
+  url: string;
+  alt: string | null;
+  isPrimary: boolean;
+  sortOrder: number;
+}
+
+export interface AdminProductDetail {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  basePrice: number;
+  category: { id: number; name: string } | null;
+  brand: { id: number; name: string } | null;
+  features: Prisma.JsonValue | null;
+  specifications: Prisma.JsonValue | null;
+  images: AdminProductDetailImage[];
+  variants: AdminProductDetailVariant[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const createAdminProduct = async (
   payload: AdminCreateProductPayload,
 ): Promise<AdminCreateProductResult> => {
@@ -1056,6 +1093,70 @@ export const listAdminProducts = async (
       totalItems,
       totalPages,
     },
+  };
+};
+
+export const getAdminProductDetail = async (
+  productId: number,
+): Promise<AdminProductDetail | null> => {
+  if (!Number.isFinite(productId) || productId <= 0) return null;
+
+  const product = await prisma.product.findUnique({
+    where: { id: Math.floor(productId) },
+    include: {
+      category: { select: { id: true, name: true } },
+      brand: { select: { id: true, name: true } },
+      images: {
+        orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }],
+        select: { id: true, url: true, alt: true, isPrimary: true, sortOrder: true },
+      },
+      variants: {
+        orderBy: { id: "asc" },
+        include: {
+          size: { select: { id: true, name: true } },
+          color: { select: { id: true, name: true, hex: true } },
+        },
+      },
+    },
+  });
+
+  if (!product) return null;
+
+  const variants: AdminProductDetailVariant[] = product.variants.map((variant) => ({
+    id: variant.id,
+    sku: variant.sku,
+    price: decimalToNumber(variant.price ?? product.basePrice),
+    stock: variant.stock ?? 0,
+    sizeId: variant.size?.id ?? null,
+    sizeName: variant.size?.name ?? null,
+    colorId: variant.color?.id ?? null,
+    colorName: variant.color?.name ?? null,
+    colorHex: variant.color?.hex ?? null,
+    isActive: variant.isActive,
+  }));
+
+  const images: AdminProductDetailImage[] = product.images.map((image) => ({
+    id: image.id,
+    url: image.url,
+    alt: image.alt ?? null,
+    isPrimary: image.isPrimary,
+    sortOrder: image.sortOrder,
+  }));
+
+  return {
+    id: product.id,
+    name: product.name,
+    slug: product.slug,
+    description: product.description,
+    basePrice: decimalToNumber(product.basePrice),
+    category: product.category,
+    brand: product.brand,
+    features: product.features,
+    specifications: product.specifications,
+    images,
+    variants,
+    createdAt: product.createdAt.toISOString(),
+    updatedAt: product.updatedAt.toISOString(),
   };
 };
 

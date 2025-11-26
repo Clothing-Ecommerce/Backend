@@ -11,6 +11,7 @@ import {
   listAdminProductsController,
   createAdminProductController,
   listAdminCategoriesController,
+  getAdminProductDetailController,
 } from "../controllers/adminController";
 
 const router = Router();
@@ -29,6 +30,7 @@ router.get("/orders/:orderId", getAdminOrderDetailController);
 router.patch("/orders/:orderId/status", updateAdminOrderStatusController);
 
 router.get("/products", listAdminProductsController);
+router.get("/products/:productId", getAdminProductDetailController);
 router.post("/products", createAdminProductController);
 
 export default router;
