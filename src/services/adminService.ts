@@ -235,6 +235,17 @@ export class AdminOrderActionError extends Error {
   }
 }
 
+export class AdminProductActionError extends Error {
+  code: string;
+  httpStatus: number;
+
+  constructor(code: string, message: string, httpStatus = 400) {
+    super(message);
+    this.code = code;
+    this.httpStatus = httpStatus;
+  }
+}
+
 const ORDER_SUMMARY_SELECT = {
   id: true,
   status: true,
@@ -1158,6 +1169,54 @@ export const getAdminProductDetail = async (
     createdAt: product.createdAt.toISOString(),
     updatedAt: product.updatedAt.toISOString(),
   };
+};
+
+export const deleteAdminProduct = async (productId: number): Promise<void> => {
+  if (!Number.isFinite(productId) || productId <= 0) {
+    throw new AdminProductActionError("INVALID_PRODUCT_ID", "Mã sản phẩm không hợp lệ", 400);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const product = await tx.product.findUnique({
+      where: { id: Math.floor(productId) },
+      select: {
+        id: true,
+        variants: { select: { id: true } },
+      },
+    });
+
+    if (!product) {
+      throw new AdminProductActionError("PRODUCT_NOT_FOUND", "Không tìm thấy sản phẩm", 404);
+    }
+
+    const variantIds = product.variants.map((variant) => variant.id);
+
+    if (variantIds.length > 0) {
+      const relatedOrders = await tx.orderItem.count({
+        where: { variantId: { in: variantIds } },
+      });
+
+      if (relatedOrders > 0) {
+        throw new AdminProductActionError(
+          "PRODUCT_HAS_ORDERS",
+          "Sản phẩm đã phát sinh đơn hàng nên không thể xóa",
+          409,
+        );
+      }
+    }
+
+    await tx.review.deleteMany({ where: { productId: product.id } });
+    await tx.wishlistItem.deleteMany({ where: { productId: product.id } });
+    await tx.productImage.deleteMany({ where: { productId: product.id } });
+
+    if (variantIds.length > 0) {
+      await tx.cartItem.deleteMany({ where: { variantId: { in: variantIds } } });
+      await tx.price.deleteMany({ where: { variantId: { in: variantIds } } });
+      await tx.productVariant.deleteMany({ where: { id: { in: variantIds } } });
+    }
+
+    await tx.product.delete({ where: { id: product.id } });
+  });
 };
 
 export const listAdminCategories = async (): Promise<AdminCategoryOption[]> => {

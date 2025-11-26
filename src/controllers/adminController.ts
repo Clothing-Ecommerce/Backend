@@ -16,6 +16,8 @@ import {
   createAdminProduct,
   listAdminCategories,
   getAdminProductDetail,
+  deleteAdminProduct,
+  AdminProductActionError,
 } from "../services/adminService";
 import { Prisma } from "@prisma/client";
 import type { AuthenticatedRequest } from "../middleware/authMiddleware";
@@ -274,6 +276,26 @@ export const createAdminProductController = async (req: Request, res: Response) 
     }
     console.error("Failed to create admin product", error);
     return res.status(500).json({ message: "Không thể tạo sản phẩm" });
+  }
+};
+
+export const deleteAdminProductController = async (req: Request, res: Response) => {
+  const rawId = req.params.productId ?? req.params.id;
+  const productId = Number.parseInt(String(rawId ?? ""), 10);
+
+  if (!Number.isFinite(productId) || productId <= 0) {
+    return res.status(400).json({ message: "Mã sản phẩm không hợp lệ" });
+  }
+
+  try {
+    await deleteAdminProduct(productId);
+    return res.status(204).send();
+  } catch (error) {
+    if (error instanceof AdminProductActionError) {
+      return res.status(error.httpStatus).json({ message: error.message, code: error.code });
+    }
+    console.error("Failed to delete admin product", error);
+    return res.status(500).json({ message: "Không thể xóa sản phẩm" });
   }
 };
 
