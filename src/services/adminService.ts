@@ -145,6 +145,8 @@ const CRITICAL_STOCK_THRESHOLD = 10;
 // const SLOW_TURNOVER_ALERT_THRESHOLD = 60;
 const ZERO_SALES_TURNOVER_MULTIPLIER = 10;
 
+const ADMIN_LOW_STOCK_THRESHOLD = 30;
+
 export type AdminOrderStatus =
   | "pending"
   | "processing"
@@ -750,6 +752,134 @@ export const getDashboardInventory = async (
     bestSellers,
     slowMovers,
     alerts,
+  };
+};
+
+export type AdminProductStockStatus = "in-stock" | "low-stock" | "out-of-stock";
+
+export interface AdminProductListOptions {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  categoryId?: number;
+  status?: AdminProductStockStatus;
+}
+
+export interface AdminProductListItem {
+  id: number;
+  name: string;
+  slug: string;
+  category: { id: number; name: string };
+  brand: { id: number; name: string } | null;
+  price: number;
+  totalStock: number;
+  stockStatus: AdminProductStockStatus;
+  variants: number;
+  imageUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminProductListResponse {
+  products: AdminProductListItem[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalItems: number;
+    totalPages: number;
+  };
+}
+
+export const listAdminProducts = async (
+  options: AdminProductListOptions = {},
+): Promise<AdminProductListResponse> => {
+  const page = Number.isFinite(options.page) && options.page && options.page > 0 ? Math.floor(options.page) : 1;
+  const rawPageSize =
+    Number.isFinite(options.pageSize) && options.pageSize && options.pageSize > 0
+      ? Math.floor(options.pageSize)
+      : 20;
+  const pageSize = Math.min(rawPageSize, 100);
+
+  const where: Prisma.ProductWhereInput = {};
+
+  if (typeof options.search === "string" && options.search.trim().length) {
+    const search = options.search.trim();
+    where.OR = [
+      { name: { contains: search, mode: "insensitive" } },
+      { slug: { contains: search, mode: "insensitive" } },
+    ];
+  }
+
+  if (Number.isFinite(options.categoryId)) {
+    where.categoryId = options.categoryId as number;
+  }
+
+  const products = await prisma.product.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    include: {
+      category: { select: { id: true, name: true } },
+      brand: { select: { id: true, name: true } },
+      images: {
+        where: { isPrimary: true },
+        orderBy: { sortOrder: "asc" },
+        take: 1,
+        select: { url: true },
+      },
+      variants: {
+        where: { isActive: true },
+        select: { id: true, stock: true, price: true },
+      },
+    },
+  });
+
+  const items: AdminProductListItem[] = products.map((product) => {
+    const totalStock = product.variants.reduce((sum, variant) => sum + (variant.stock ?? 0), 0);
+    const priceCandidates = product.variants.map((variant) => decimalToNumber(variant.price ?? product.basePrice));
+    const price = priceCandidates.length
+      ? Math.min(...priceCandidates)
+      : decimalToNumber(product.basePrice);
+
+    let stockStatus: AdminProductStockStatus = "in-stock";
+    if (totalStock <= 0) {
+      stockStatus = "out-of-stock";
+    } else if (totalStock <= ADMIN_LOW_STOCK_THRESHOLD) {
+      stockStatus = "low-stock";
+    }
+
+    return {
+      id: product.id,
+      name: product.name,
+      slug: product.slug,
+      category: product.category,
+      brand: product.brand,
+      price,
+      totalStock,
+      stockStatus,
+      variants: product.variants.length,
+      imageUrl: product.images[0]?.url ?? null,
+      createdAt: product.createdAt.toISOString(),
+      updatedAt: product.updatedAt.toISOString(),
+    };
+  });
+
+  const filteredItems = options.status
+    ? items.filter((item) => item.stockStatus === options.status)
+    : items;
+
+  const totalItems = filteredItems.length;
+  const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize);
+  const start = (page - 1) * pageSize;
+  const pagedItems = filteredItems.slice(start, start + pageSize);
+
+  return {
+    products: pagedItems,
+    pagination: {
+      page,
+      pageSize,
+      totalItems,
+      totalPages,
+    },
   };
 };
 

@@ -11,6 +11,8 @@ import {
   updateAdminOrderStatus,
   AdminOrderActionError,
   type AdminOrderStatus,
+  listAdminProducts,
+  type AdminProductStockStatus,
 } from "../services/adminService";
 import type { AuthenticatedRequest } from "../middleware/authMiddleware";
 
@@ -23,6 +25,12 @@ const ADMIN_ORDER_STATUSES = new Set<AdminOrderStatus>([
   "completed",
   "cancelled",
   "refunded",
+]);
+
+const ADMIN_PRODUCT_STATUSES = new Set<AdminProductStockStatus>([
+  "in-stock",
+  "low-stock",
+  "out-of-stock",
 ]);
 
 const parseNumeric = (value: unknown): number | undefined => {
@@ -126,6 +134,33 @@ export const getDashboardInventoryController = async (req: Request, res: Respons
   } catch (error) {
     console.error("Failed to get dashboard inventory", error);
     return res.status(500).json({ message: "Không thể lấy dữ liệu tồn kho" });
+  }
+};
+
+export const listAdminProductsController = async (req: Request, res: Response) => {
+  const page = parseNumeric(req.query.page);
+  const pageSize = parseNumeric(req.query.pageSize ?? req.query.limit);
+  const search = typeof req.query.search === "string" ? req.query.search : undefined;
+  const categoryId = parseNumeric(req.query.categoryId ?? req.query.category);
+
+  const statusRaw = typeof req.query.status === "string" ? req.query.status.trim().toLowerCase() : undefined;
+  const status = statusRaw && ADMIN_PRODUCT_STATUSES.has(statusRaw as AdminProductStockStatus)
+    ? (statusRaw as AdminProductStockStatus)
+    : undefined;
+
+  try {
+    const result = await listAdminProducts({
+      page: page && page > 0 ? Math.floor(page) : undefined,
+      pageSize: pageSize && pageSize > 0 ? Math.floor(pageSize) : undefined,
+      search,
+      categoryId,
+      status,
+    });
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("Failed to list admin products", error);
+    return res.status(500).json({ message: "Không thể tải danh sách sản phẩm" });
   }
 };
 
