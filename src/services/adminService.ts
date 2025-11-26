@@ -780,8 +780,8 @@ export interface AdminCreateProductPayload {
   basePrice: number;
   categoryId: number;
   brandId?: number | null;
-  features?: Record<string, unknown> | null;
-  specifications?: Record<string, unknown> | null;
+  features?: Prisma.InputJsonValue | null;
+  specifications?: Prisma.InputJsonValue | null;
   images?: AdminProductImageInput[];
   variants?: AdminProductVariantInput[];
 }

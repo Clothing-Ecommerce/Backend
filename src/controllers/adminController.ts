@@ -189,14 +189,8 @@ export const createAdminProductController = async (req: Request, res: Response) 
   const safeCategoryId = categoryId as number;
   const normalizedBrandId = typeof brandIdRaw === "number" ? brandIdRaw : undefined;
 
-  const features =
-    typeof body.features === "object" && body.features !== null
-      ? (body.features as Record<string, unknown>)
-      : undefined;
-  const specifications =
-    typeof body.specifications === "object" && body.specifications !== null
-      ? (body.specifications as Record<string, unknown>)
-      : undefined;
+  const features = body.features as Prisma.InputJsonValue | undefined;
+  const specifications = body.specifications as Prisma.InputJsonValue | undefined;
 
   const images = Array.isArray(body.images)
     ? body.images
