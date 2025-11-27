@@ -14,18 +14,26 @@ import {
   getAdminProductDetailController,
   deleteAdminProductController,
   updateAdminProductController,
+  getAdminCategoryTreeController,
+  getAdminCategoryDetailController,
+  createAdminCategoryController,
+  updateAdminCategoryController,
 } from "../controllers/adminController";
 
 const router = Router();
 
 router.get("/provinces", listProvincesController);
-router.get("/districts", listDistrictsController); 
+router.get("/districts", listDistrictsController);
 router.get("/wards", listWardsController);
 
 router.get("/dashboard/overview", getDashboardOverviewController);
 router.get("/dashboard/inventory", getDashboardInventoryController);
 
 router.get("/categories", listAdminCategoriesController);
+router.get("/categories/tree", getAdminCategoryTreeController);
+router.get("/categories/:categoryId", getAdminCategoryDetailController);
+router.post("/categories", createAdminCategoryController);
+router.patch("/categories/:categoryId", updateAdminCategoryController);
 
 router.get("/orders", listAdminOrdersController);
 router.get("/orders/:orderId", getAdminOrderDetailController);

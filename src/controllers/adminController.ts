@@ -16,6 +16,10 @@ import {
   createAdminProduct,
   updateAdminProduct,
   listAdminCategories,
+  getAdminCategoryTree,
+  getAdminCategoryDetail,
+  createAdminCategory,
+  updateAdminCategory,
   getAdminProductDetail,
   deleteAdminProduct,
   AdminProductActionError,
@@ -151,6 +155,88 @@ export const listAdminCategoriesController = async (_req: Request, res: Response
   } catch (error) {
     console.error("Failed to list admin categories", error);
     return res.status(500).json({ message: "Không thể tải danh mục" });
+  }
+};
+
+export const getAdminCategoryTreeController = async (req: Request, res: Response) => {
+  const search = typeof req.query.search === "string" ? req.query.search : undefined;
+  try {
+    const categories = await getAdminCategoryTree(search);
+    return res.status(200).json(categories);
+  } catch (error) {
+    console.error("Failed to get admin category tree", error);
+    return res.status(500).json({ message: "Không thể tải cây danh mục" });
+  }
+};
+
+export const getAdminCategoryDetailController = async (req: Request, res: Response) => {
+  const categoryId = parseNumeric(req.params.categoryId ?? req.params.id);
+  if (!categoryId || categoryId <= 0) {
+    return res.status(400).json({ message: "Mã danh mục không hợp lệ" });
+  }
+
+  try {
+    const detail = await getAdminCategoryDetail(categoryId);
+    if (!detail) {
+      return res.status(404).json({ message: "Không tìm thấy danh mục" });
+    }
+    return res.status(200).json(detail);
+  } catch (error) {
+    console.error("Failed to get admin category detail", error);
+    return res.status(500).json({ message: "Không thể tải thông tin danh mục" });
+  }
+};
+
+export const createAdminCategoryController = async (req: AuthenticatedRequest, res: Response) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const name = typeof body.name === "string" ? body.name : "";
+  const slug = typeof body.slug === "string" ? body.slug : undefined;
+  const description = typeof body.description === "string" ? body.description : null;
+  const parentId = parseNumeric(body.parentId);
+
+  try {
+    const category = await createAdminCategory({
+      name,
+      slug,
+      description,
+      parentId,
+    });
+    return res.status(201).json(category);
+  } catch (error) {
+    if (error instanceof AdminProductActionError) {
+      return res.status(error.httpStatus ?? 400).json({ message: error.message, code: error.code });
+    }
+    console.error("Failed to create admin category", error);
+    return res.status(500).json({ message: "Không thể tạo danh mục" });
+  }
+};
+
+export const updateAdminCategoryController = async (req: AuthenticatedRequest, res: Response) => {
+  const categoryId = parseNumeric(req.params.categoryId ?? req.params.id);
+  if (!categoryId || categoryId <= 0) {
+    return res.status(400).json({ message: "Mã danh mục không hợp lệ" });
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const name = typeof body.name === "string" ? body.name : undefined;
+  const slug = typeof body.slug === "string" ? body.slug : undefined;
+  const description = typeof body.description === "string" ? body.description : undefined;
+  const parentId = body.parentId === null ? null : parseNumeric(body.parentId);
+
+  try {
+    const category = await updateAdminCategory(categoryId, {
+      name,
+      slug,
+      description,
+      parentId,
+    });
+    return res.status(200).json(category);
+  } catch (error) {
+    if (error instanceof AdminProductActionError) {
+      return res.status(error.httpStatus ?? 400).json({ message: error.message, code: error.code });
+    }
+    console.error("Failed to update admin category", error);
+    return res.status(500).json({ message: "Không thể cập nhật danh mục" });
   }
 };
 

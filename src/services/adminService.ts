@@ -1305,6 +1305,320 @@ export const listAdminCategories = async (): Promise<AdminCategoryOption[]> => {
   }));
 };
 
+export interface AdminCategoryNode {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  parentId: number | null;
+  productCount: number;
+  children: AdminCategoryNode[];
+}
+
+export interface AdminCategoryDetail {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  parentId: number | null;
+  productCount: number;
+  childCount: number;
+  breadcrumbs: { id: number; name: string }[];
+}
+
+const slugify = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)+/g, "")
+    .replace(/-{2,}/g, "-");
+
+const buildCategoryTree = (
+  categories: (AdminCategoryOption & { description: string | null })[],
+  search?: string,
+): AdminCategoryNode[] => {
+  const normalizedSearch = search?.trim().toLowerCase();
+  const byParent = new Map<number | null, typeof categories>();
+  const byId = new Map<number, (typeof categories)[number]>();
+
+  categories.forEach((category) => {
+    const parentKey = category.parentId ?? null;
+    const list = byParent.get(parentKey) ?? [];
+    list.push(category);
+    byParent.set(parentKey, list);
+    byId.set(category.id, category);
+  });
+
+  let allowed = new Set<number>();
+  if (normalizedSearch && normalizedSearch.length > 0) {
+    const matched = categories
+      .filter(
+        (cat) =>
+          cat.name.toLowerCase().includes(normalizedSearch) ||
+          cat.slug.toLowerCase().includes(normalizedSearch),
+      )
+      .map((cat) => cat.id);
+
+    const collectAncestors = (id: number) => {
+      let current: number | null | undefined = id;
+      while (current != null) {
+        if (allowed.has(current)) break;
+        allowed.add(current);
+        current = byId.get(current)?.parentId ?? null;
+      }
+    };
+
+    matched.forEach(collectAncestors);
+  } else {
+    allowed = new Set(categories.map((cat) => cat.id));
+  }
+
+  const buildNodes = (parentId: number | null): AdminCategoryNode[] => {
+    const nodes = (byParent.get(parentId) ?? [])
+      .filter((cat) => allowed.has(cat.id))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((cat) => ({
+        id: cat.id,
+        name: cat.name,
+        slug: cat.slug,
+        description: cat.description,
+        parentId: cat.parentId ?? null,
+        productCount: cat.productCount,
+        children: buildNodes(cat.id),
+      }));
+    return nodes;
+  };
+
+  return buildNodes(null);
+};
+
+export const getAdminCategoryTree = async (search?: string): Promise<AdminCategoryNode[]> => {
+  const categories = await prisma.category.findMany({
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      description: true,
+      parentId: true,
+      _count: { select: { products: true } },
+    },
+  });
+
+  const mapped = categories.map((category) => ({
+    id: category.id,
+    name: category.name,
+    slug: category.slug,
+    description: category.description,
+    parentId: category.parentId,
+    productCount: category._count.products,
+  }));
+
+  return buildCategoryTree(mapped, search);
+};
+
+export const getAdminCategoryDetail = async (categoryId: number): Promise<AdminCategoryDetail | null> => {
+  const category = await prisma.category.findUnique({
+    where: { id: categoryId },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      description: true,
+      parentId: true,
+      _count: { select: { products: true, children: true } },
+    },
+  });
+
+  if (!category) return null;
+
+  const breadcrumbs: { id: number; name: string }[] = [];
+  let currentParentId = category.parentId;
+  while (currentParentId) {
+    const parent = await prisma.category.findUnique({
+      where: { id: currentParentId },
+      select: { id: true, name: true, parentId: true },
+    });
+    if (!parent) break;
+    breadcrumbs.unshift({ id: parent.id, name: parent.name });
+    currentParentId = parent.parentId;
+  }
+
+  return {
+    id: category.id,
+    name: category.name,
+    slug: category.slug,
+    description: category.description,
+    parentId: category.parentId,
+    productCount: category._count.products,
+    childCount: category._count.children,
+    breadcrumbs,
+  };
+};
+
+export interface CreateAdminCategoryPayload {
+  name: string;
+  slug?: string;
+  description?: string | null;
+  parentId?: number | null;
+}
+
+export const createAdminCategory = async (
+  payload: CreateAdminCategoryPayload,
+): Promise<AdminCategoryDetail> => {
+  const name = payload.name.trim();
+  if (!name) {
+    throw new AdminProductActionError("INVALID_CATEGORY_NAME", "Tên danh mục không hợp lệ", 400);
+  }
+
+  const parentId = payload.parentId ?? null;
+  if (parentId) {
+    const parent = await prisma.category.findUnique({ where: { id: parentId } });
+    if (!parent) {
+      throw new AdminProductActionError("PARENT_NOT_FOUND", "Danh mục cha không tồn tại", 404);
+    }
+  }
+
+  const slug = payload.slug?.trim() || slugify(name);
+
+  const existedSlug = await prisma.category.findUnique({ where: { slug } });
+  if (existedSlug) {
+    throw new AdminProductActionError("DUPLICATE_SLUG", "Slug đã tồn tại", 409);
+  }
+
+  const created = await prisma.category.create({
+    data: {
+      name,
+      slug,
+      description: payload.description?.trim() || null,
+      parentId,
+    },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      description: true,
+      parentId: true,
+      _count: { select: { products: true, children: true } },
+    },
+  });
+
+  return {
+    id: created.id,
+    name: created.name,
+    slug: created.slug,
+    description: created.description,
+    parentId: created.parentId,
+    productCount: created._count.products,
+    childCount: created._count.children,
+    breadcrumbs: [],
+  };
+};
+
+export interface UpdateAdminCategoryPayload {
+  name?: string;
+  slug?: string;
+  description?: string | null;
+  parentId?: number | null;
+}
+
+export const updateAdminCategory = async (
+  categoryId: number,
+  payload: UpdateAdminCategoryPayload,
+): Promise<AdminCategoryDetail> => {
+  const category = await prisma.category.findUnique({ where: { id: categoryId } });
+  if (!category) {
+    throw new AdminProductActionError("CATEGORY_NOT_FOUND", "Danh mục không tồn tại", 404);
+  }
+
+  const name = payload.name?.trim() ?? category.name;
+  if (!name) {
+    throw new AdminProductActionError("INVALID_CATEGORY_NAME", "Tên danh mục không hợp lệ", 400);
+  }
+
+  let parentId = payload.parentId ?? category.parentId;
+  if (parentId === categoryId) {
+    throw new AdminProductActionError(
+      "INVALID_PARENT",
+      "Danh mục cha không thể là chính nó",
+      400,
+    );
+  }
+
+  if (parentId) {
+    const allCategories = await prisma.category.findMany({ select: { id: true, parentId: true } });
+    const parentMap = new Map<number, number | null>();
+    allCategories.forEach((c) => parentMap.set(c.id, c.parentId));
+
+    let cursor: number | null | undefined = parentId;
+    while (cursor != null) {
+      if (cursor === categoryId) {
+        throw new AdminProductActionError(
+          "INVALID_PARENT",
+          "Danh mục cha không thể là danh mục con của chính nó",
+          400,
+        );
+      }
+      cursor = parentMap.get(cursor) ?? null;
+    }
+
+    const parent = await prisma.category.findUnique({ where: { id: parentId } });
+    if (!parent) {
+      throw new AdminProductActionError("PARENT_NOT_FOUND", "Danh mục cha không tồn tại", 404);
+    }
+  } else {
+    parentId = null;
+  }
+
+  const slug = payload.slug?.trim() || category.slug;
+  const existingSlug = await prisma.category.findUnique({ where: { slug } });
+  if (existingSlug && existingSlug.id !== categoryId) {
+    throw new AdminProductActionError("DUPLICATE_SLUG", "Slug đã tồn tại", 409);
+  }
+
+  const updated = await prisma.category.update({
+    where: { id: categoryId },
+    data: {
+      name,
+      slug,
+      description: payload.description === undefined ? category.description : payload.description,
+      parentId,
+    },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      description: true,
+      parentId: true,
+      _count: { select: { products: true, children: true } },
+    },
+  });
+
+  const breadcrumbs: { id: number; name: string }[] = [];
+  let currentParentId = updated.parentId;
+  while (currentParentId) {
+    const parent = await prisma.category.findUnique({
+      where: { id: currentParentId },
+      select: { id: true, name: true, parentId: true },
+    });
+    if (!parent) break;
+    breadcrumbs.unshift({ id: parent.id, name: parent.name });
+    currentParentId = parent.parentId;
+  }
+
+  return {
+    id: updated.id,
+    name: updated.name,
+    slug: updated.slug,
+    description: updated.description,
+    parentId: updated.parentId,
+    productCount: updated._count.products,
+    childCount: updated._count.children,
+    breadcrumbs,
+  };
+};
+
 export interface AdminOrderListOptions {
   page?: number;
   pageSize?: number;
