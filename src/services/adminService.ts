@@ -1335,6 +1335,22 @@ const slugify = (value: string) =>
     .replace(/(^-|-$)+/g, "")
     .replace(/-{2,}/g, "-");
 
+const isDescendantOf = (
+  categoryId: number,
+  potentialParentId: number,
+  parentMap: Map<number, number | null>,
+) => {
+  let cursor: number | null | undefined = potentialParentId;
+  while (cursor != null) {
+    if (cursor === categoryId) {
+      return true;
+    }
+    cursor = parentMap.get(cursor) ?? null;
+  }
+
+  return false;
+};
+
 const buildCategoryTree = (
   categories: (AdminCategoryOption & { description: string | null })[],
   search?: string,
@@ -1412,7 +1428,7 @@ export const getAdminCategoryTree = async (search?: string): Promise<AdminCatego
     slug: category.slug,
     description: category.description,
     parentId: category.parentId,
-    productCount: category._count.products,
+    productCount: category._count?.products ?? 0,
   }));
 
   return buildCategoryTree(mapped, search);
@@ -1551,16 +1567,12 @@ export const updateAdminCategory = async (
     const parentMap = new Map<number, number | null>();
     allCategories.forEach((c) => parentMap.set(c.id, c.parentId));
 
-    let cursor: number | null | undefined = parentId;
-    while (cursor != null) {
-      if (cursor === categoryId) {
-        throw new AdminProductActionError(
-          "INVALID_PARENT",
-          "Danh mục cha không thể là danh mục con của chính nó",
-          400,
-        );
-      }
-      cursor = parentMap.get(cursor) ?? null;
+    if (isDescendantOf(categoryId, parentId, parentMap)) {
+      throw new AdminProductActionError(
+        "INVALID_PARENT",
+        "Danh mục cha không thể là danh mục con của chính nó",
+        400,
+      );
     }
 
     const parent = await prisma.category.findUnique({ where: { id: parentId } });
@@ -1571,7 +1583,11 @@ export const updateAdminCategory = async (
     parentId = null;
   }
 
-  const slug = payload.slug?.trim() || category.slug;
+  const slugInput = payload.slug?.trim();
+  const slug = slugInput || (payload.name ? slugify(name) : category.slug);
+  if (!slug) {
+    throw new AdminProductActionError("INVALID_SLUG", "Slug không hợp lệ", 400);
+  }
   const existingSlug = await prisma.category.findUnique({ where: { slug } });
   if (existingSlug && existingSlug.id !== categoryId) {
     throw new AdminProductActionError("DUPLICATE_SLUG", "Slug đã tồn tại", 409);
@@ -1617,6 +1633,39 @@ export const updateAdminCategory = async (
     childCount: updated._count.children,
     breadcrumbs,
   };
+};
+
+export const deleteAdminCategory = async (categoryId: number): Promise<void> => {
+  if (!Number.isFinite(categoryId) || categoryId <= 0) {
+    throw new AdminProductActionError("INVALID_CATEGORY_ID", "Mã danh mục không hợp lệ", 400);
+  }
+
+  const category = await prisma.category.findUnique({
+    where: { id: Math.floor(categoryId) },
+    select: { _count: { select: { products: true, children: true } } },
+  });
+
+  if (!category) {
+    throw new AdminProductActionError("CATEGORY_NOT_FOUND", "Danh mục không tồn tại", 404);
+  }
+
+  if (category._count.children > 0) {
+    throw new AdminProductActionError(
+      "CATEGORY_HAS_CHILDREN",
+      "Danh mục đang có danh mục con, cần xóa hoặc di chuyển danh mục con trước",
+      409,
+    );
+  }
+
+  if (category._count.products > 0) {
+    throw new AdminProductActionError(
+      "CATEGORY_HAS_PRODUCTS",
+      "Danh mục đang có sản phẩm, cần di chuyển sản phẩm trước khi xóa",
+      409,
+    );
+  }
+
+  await prisma.category.delete({ where: { id: Math.floor(categoryId) } });
 };
 
 export interface AdminOrderListOptions {

@@ -18,6 +18,7 @@ import {
   getAdminCategoryDetailController,
   createAdminCategoryController,
   updateAdminCategoryController,
+  deleteAdminCategoryController,
 } from "../controllers/adminController";
 
 const router = Router();
@@ -34,6 +35,7 @@ router.get("/categories/tree", getAdminCategoryTreeController);
 router.get("/categories/:categoryId", getAdminCategoryDetailController);
 router.post("/categories", createAdminCategoryController);
 router.patch("/categories/:categoryId", updateAdminCategoryController);
+router.delete("/categories/:categoryId", deleteAdminCategoryController);
 
 router.get("/orders", listAdminOrdersController);
 router.get("/orders/:orderId", getAdminOrderDetailController);

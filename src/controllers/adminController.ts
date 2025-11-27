@@ -20,6 +20,7 @@ import {
   getAdminCategoryDetail,
   createAdminCategory,
   updateAdminCategory,
+  deleteAdminCategory,
   getAdminProductDetail,
   deleteAdminProduct,
   AdminProductActionError,
@@ -237,6 +238,24 @@ export const updateAdminCategoryController = async (req: AuthenticatedRequest, r
     }
     console.error("Failed to update admin category", error);
     return res.status(500).json({ message: "Không thể cập nhật danh mục" });
+  }
+};
+
+export const deleteAdminCategoryController = async (req: AuthenticatedRequest, res: Response) => {
+  const categoryId = parseNumeric(req.params.categoryId ?? req.params.id);
+  if (!categoryId || categoryId <= 0) {
+    return res.status(400).json({ message: "Mã danh mục không hợp lệ" });
+  }
+
+  try {
+    await deleteAdminCategory(categoryId);
+    return res.status(204).send();
+  } catch (error) {
+    if (error instanceof AdminProductActionError) {
+      return res.status(error.httpStatus ?? 400).json({ message: error.message, code: error.code });
+    }
+    console.error("Failed to delete admin category", error);
+    return res.status(500).json({ message: "Không thể xóa danh mục" });
   }
 };
 
