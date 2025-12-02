@@ -1,4 +1,5 @@
-import { OrderStatus, PaymentMethod, Prisma } from "@prisma/client";
+import { OrderStatus, PaymentMethod, Prisma, Role, User, UserStatus } from "@prisma/client";
+import bcrypt from "bcrypt";
 import prisma from "../database/prismaClient";
 
 export type DashboardTimeRange = "today" | "week" | "month" | "quarter" | "year";
@@ -110,6 +111,58 @@ const getRangeBounds = (range: DashboardTimeRange) => {
 
   return { currentStart, currentEnd, previousStart, previousEnd, sparklineStart, todayStart };
 };
+
+const DEFAULT_USER_PASSWORD = "123456789";
+
+export class AdminUserActionError extends Error {
+  public code: string;
+  public status: number;
+
+  constructor(code: string, message: string, status = 400) {
+    super(message);
+    this.code = code;
+    this.status = status;
+  }
+}
+
+export interface AdminUserDto {
+  id: number;
+  name: string;
+  email: string;
+  role: Role;
+  status: UserStatus;
+  lastActiveAt: Date | null;
+}
+
+export interface AdminUserFilters {
+  search?: string;
+  role?: Role | null;
+}
+
+export interface AdminUserPayload {
+  name: string;
+  email: string;
+  role: Role;
+}
+
+export interface AdminUserUpdatePayload {
+  name?: string;
+  email?: string;
+  role?: Role;
+}
+
+const mapUserToAdminDto = (
+  user: Pick<User, "id" | "username" | "email" | "role" | "status"> & {
+    lastActiveAt?: Date | null;
+  },
+): AdminUserDto => ({
+  id: user.id,
+  name: user.username,
+  email: user.email,
+  role: user.role,
+  status: user.status,
+  lastActiveAt: user.lastActiveAt ?? null,
+});
 
 const STATUS_TO_BUCKET: Record<OrderStatus, "pending" | "processing" | "completed" | "cancelled"> = {
   [OrderStatus.PENDING]: "pending",
@@ -2178,4 +2231,139 @@ export const updateAdminOrderStatus = async (
     rawStatus,
     changed: updateResult.changed,
   };
+};
+
+export const listAdminUsers = async ({ search, role }: AdminUserFilters): Promise<AdminUserDto[]> => {
+  const where: Prisma.UserWhereInput = { deletedAt: null };
+
+  if (search?.trim()) {
+    where.OR = [
+      { username: { contains: search.trim(), mode: "insensitive" } },
+      { email: { contains: search.trim(), mode: "insensitive" } },
+    ];
+  }
+
+  if (role) {
+    where.role = role;
+  }
+
+  const users = await prisma.user.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      username: true,
+      email: true,
+      role: true,
+      status: true,
+      lastActiveAt: true,
+    },
+  });
+
+  return users.map(mapUserToAdminDto);
+};
+
+export const createAdminUser = async (payload: AdminUserPayload): Promise<AdminUserDto> => {
+  const existingUser = await prisma.user.findFirst({
+    where: { email: payload.email, deletedAt: null },
+  });
+
+  if (existingUser) {
+    throw new AdminUserActionError("EMAIL_EXISTS", "Email đã tồn tại", 409);
+  }
+
+  const passwordHash = await bcrypt.hash(DEFAULT_USER_PASSWORD, 10);
+
+  const user = await prisma.user.create({
+    data: {
+      username: payload.name,
+      email: payload.email,
+      role: payload.role,
+      status: UserStatus.ACTIVE,
+      passwordHash,
+      lastActiveAt: new Date(),
+    },
+    select: {
+      id: true,
+      username: true,
+      email: true,
+      role: true,
+      status: true,
+      lastActiveAt: true,
+    },
+  });
+
+  return mapUserToAdminDto(user);
+};
+
+export const updateAdminUser = async (
+  userId: number,
+  payload: AdminUserUpdatePayload,
+): Promise<AdminUserDto> => {
+  const existingUser = await prisma.user.findFirst({ where: { id: userId, deletedAt: null } });
+  if (!existingUser) {
+    throw new AdminUserActionError("NOT_FOUND", "Không tìm thấy nhân sự", 404);
+  }
+
+  if (payload.email) {
+    const conflict = await prisma.user.findFirst({
+      where: { email: payload.email, deletedAt: null, id: { not: userId } },
+    });
+    if (conflict) {
+      throw new AdminUserActionError("EMAIL_EXISTS", "Email đã tồn tại", 409);
+    }
+  }
+
+  const updatedUser = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      username: payload.name ?? existingUser.username,
+      email: payload.email ?? existingUser.email,
+      role: payload.role ?? existingUser.role,
+    },
+    select: {
+      id: true,
+      username: true,
+      email: true,
+      role: true,
+      status: true,
+      lastActiveAt: true,
+    },
+  });
+
+  return mapUserToAdminDto(updatedUser);
+};
+
+export const updateAdminUserStatus = async (
+  userId: number,
+  status: UserStatus,
+): Promise<AdminUserDto> => {
+  const user = await prisma.user.findFirst({ where: { id: userId, deletedAt: null } });
+  if (!user) {
+    throw new AdminUserActionError("NOT_FOUND", "Không tìm thấy nhân sự", 404);
+  }
+
+  const updatedUser = await prisma.user.update({
+    where: { id: userId },
+    data: { status },
+    select: {
+      id: true,
+      username: true,
+      email: true,
+      role: true,
+      status: true,
+      lastActiveAt: true,
+    },
+  });
+
+  return mapUserToAdminDto(updatedUser);
+};
+
+export const softDeleteAdminUser = async (userId: number): Promise<void> => {
+  const user = await prisma.user.findFirst({ where: { id: userId, deletedAt: null } });
+  if (!user) {
+    throw new AdminUserActionError("NOT_FOUND", "Không tìm thấy nhân sự", 404);
+  }
+
+  await prisma.user.update({ where: { id: userId }, data: { deletedAt: new Date() } });
 };

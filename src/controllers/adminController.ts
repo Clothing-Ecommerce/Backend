@@ -24,8 +24,16 @@ import {
   getAdminProductDetail,
   deleteAdminProduct,
   AdminProductActionError,
+  listAdminUsers,
+  createAdminUser,
+  updateAdminUser,
+  updateAdminUserStatus,
+  softDeleteAdminUser,
+  AdminUserActionError,
+  type AdminUserDto,
+  type AdminUserUpdatePayload,
 } from "../services/adminService";
-import { Prisma } from "@prisma/client";
+import { Prisma, Role, UserStatus } from "@prisma/client";
 import type { AuthenticatedRequest } from "../middleware/authMiddleware";
 
 const DASHBOARD_RANGES = new Set<DashboardTimeRange>(["today", "week", "month", "quarter", "year"]);
@@ -44,6 +52,17 @@ const ADMIN_PRODUCT_STATUSES = new Set<AdminProductStockStatus>([
   "low-stock",
   "out-of-stock",
 ]);
+
+const ADMIN_ROLES: Record<string, Role> = {
+  admin: Role.ADMIN,
+  staff: Role.STAFF,
+  customer: Role.CUSTOMER,
+};
+
+const ADMIN_USER_STATUS: Record<string, UserStatus> = {
+  active: UserStatus.ACTIVE,
+  suspended: UserStatus.SUSPENDED,
+};
 
 const parseNumeric = (value: unknown): number | undefined => {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -80,6 +99,147 @@ const normalizeOrderIdParam = (raw: string): number | null => {
   if (!digits.length) return null;
   const parsed = Number.parseInt(digits, 10);
   return Number.isFinite(parsed) ? parsed : null;
+};
+
+const parseRoleValue = (value: unknown): Role | null => {
+  if (typeof value !== "string") return null;
+  return ADMIN_ROLES[value.trim().toLowerCase()] ?? null;
+};
+
+const parseUserStatusValue = (value: unknown): UserStatus | null => {
+  if (typeof value !== "string") return null;
+  return ADMIN_USER_STATUS[value.trim().toLowerCase()] ?? null;
+};
+
+const formatRole = (role: Role) => {
+  switch (role) {
+    case Role.ADMIN:
+      return "Admin";
+    case Role.STAFF:
+      return "Staff";
+    case Role.CUSTOMER:
+      return "Customer";
+    default:
+      return role;
+  }
+};
+
+const formatUserStatus = (status: UserStatus) => (status === UserStatus.ACTIVE ? "active" : "suspended");
+
+const mapAdminUserResponse = (user: AdminUserDto) => ({
+  id: user.id,
+  name: user.name,
+  email: user.email,
+  role: formatRole(user.role),
+  status: formatUserStatus(user.status),
+  lastActive: user.lastActiveAt ? user.lastActiveAt.toISOString() : null,
+});
+
+export const listAdminUsersController = async (req: Request, res: Response) => {
+  const search = typeof req.query.search === "string" ? req.query.search : undefined;
+  const role = parseRoleValue(req.query.role);
+
+  try {
+    const users = await listAdminUsers({ search, role });
+    return res.status(200).json(users.map(mapAdminUserResponse));
+  } catch (error) {
+    console.error("Failed to list admin users", error);
+    return res.status(500).json({ message: "Không thể tải danh sách nhân sự" });
+  }
+};
+
+export const createAdminUserController = async (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const email = typeof body.email === "string" ? body.email.trim() : "";
+  const role = parseRoleValue(body.role);
+
+  if (!name || !email || !role) {
+    return res.status(400).json({ message: "Thiếu thông tin bắt buộc" });
+  }
+
+  try {
+    const user = await createAdminUser({ name, email, role });
+    return res.status(201).json(mapAdminUserResponse(user));
+  } catch (error) {
+    if (error instanceof AdminUserActionError) {
+      return res.status(error.status).json({ message: error.message, code: error.code });
+    }
+    console.error("Failed to create admin user", error);
+    return res.status(500).json({ message: "Không thể tạo nhân sự" });
+  }
+};
+
+export const updateAdminUserController = async (req: Request, res: Response) => {
+  const userId = parseNumeric(req.params.userId ?? req.params.id);
+  if (!userId) {
+    return res.status(400).json({ message: "Mã nhân sự không hợp lệ" });
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const payload: AdminUserUpdatePayload = {};
+
+  if (typeof body.name === "string") payload.name = body.name.trim();
+  if (typeof body.email === "string") payload.email = body.email.trim();
+  const role = parseRoleValue(body.role);
+  if (role) payload.role = role;
+
+  if (!Object.keys(payload).length) {
+    return res.status(400).json({ message: "Không có thay đổi nào được cung cấp" });
+  }
+
+  try {
+    const user = await updateAdminUser(userId, payload);
+    return res.status(200).json(mapAdminUserResponse(user));
+  } catch (error) {
+    if (error instanceof AdminUserActionError) {
+      return res.status(error.status).json({ message: error.message, code: error.code });
+    }
+    console.error("Failed to update admin user", error);
+    return res.status(500).json({ message: "Không thể cập nhật nhân sự" });
+  }
+};
+
+export const updateAdminUserStatusController = async (req: Request, res: Response) => {
+  const userId = parseNumeric(req.params.userId ?? req.params.id);
+  if (!userId) {
+    return res.status(400).json({ message: "Mã nhân sự không hợp lệ" });
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const status = parseUserStatusValue(body.status ?? req.query.status);
+  if (!status) {
+    return res.status(400).json({ message: "Trạng thái không hợp lệ" });
+  }
+
+  try {
+    const user = await updateAdminUserStatus(userId, status);
+    return res.status(200).json(mapAdminUserResponse(user));
+  } catch (error) {
+    if (error instanceof AdminUserActionError) {
+      return res.status(error.status).json({ message: error.message, code: error.code });
+    }
+    console.error("Failed to update admin user status", error);
+    return res.status(500).json({ message: "Không thể cập nhật trạng thái" });
+  }
+};
+
+export const deleteAdminUserController = async (req: Request, res: Response) => {
+  const userId = parseNumeric(req.params.userId ?? req.params.id);
+  if (!userId) {
+    return res.status(400).json({ message: "Mã nhân sự không hợp lệ" });
+  }
+
+  try {
+    await softDeleteAdminUser(userId);
+    return res.status(204).send();
+  } catch (error) {
+    if (error instanceof AdminUserActionError) {
+      return res.status(error.status).json({ message: error.message, code: error.code });
+    }
+    console.error("Failed to delete admin user", error);
+    return res.status(500).json({ message: "Không thể xoá nhân sự" });
+  }
 };
 
 export const listProvincesController = async (_req: Request, res: Response) => {

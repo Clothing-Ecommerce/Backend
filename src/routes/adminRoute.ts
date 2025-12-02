@@ -19,6 +19,11 @@ import {
   createAdminCategoryController,
   updateAdminCategoryController,
   deleteAdminCategoryController,
+  listAdminUsersController,
+  createAdminUserController,
+  updateAdminUserController,
+  updateAdminUserStatusController,
+  deleteAdminUserController,
 } from "../controllers/adminController";
 
 const router = Router();
@@ -26,6 +31,12 @@ const router = Router();
 router.get("/provinces", listProvincesController);
 router.get("/districts", listDistrictsController);
 router.get("/wards", listWardsController);
+
+router.get("/users", listAdminUsersController);
+router.post("/users", createAdminUserController);
+router.patch("/users/:userId", updateAdminUserController);
+router.patch("/users/:userId/status", updateAdminUserStatusController);
+router.delete("/users/:userId", deleteAdminUserController);
 
 router.get("/dashboard/overview", getDashboardOverviewController);
 router.get("/dashboard/inventory", getDashboardInventoryController);
