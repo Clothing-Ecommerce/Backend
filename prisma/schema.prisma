@@ -100,6 +100,9 @@ model User {
 
   statusEvents OrderStatusHistory[]                       // các sự kiện thay đổi trạng thái do user thực hiện
 
+  lastActiveAt DateTime    @default(now())                // thời điểm hoạt động gần nhất
+  deletedAt    DateTime?                                  // soft delete marker
+
   createdAt    DateTime    @default(now())                // thời điểm tạo
   updatedAt    DateTime    @updatedAt                     // tự động cập nhật
 }
