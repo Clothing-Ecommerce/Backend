@@ -25,6 +25,14 @@ import {
   updateAdminUserStatusController,
   deleteAdminUserController,
 } from "../controllers/adminController";
+import {
+  categoryAnalyticsController,
+  inventoryAnalyticsController,
+  locationAnalyticsController,
+  paymentAnalyticsController,
+  reportOverviewController,
+  vipCustomersController,
+} from "../controllers/reportController";
 
 const router = Router();
 
@@ -40,6 +48,13 @@ router.delete("/users/:userId", deleteAdminUserController);
 
 router.get("/dashboard/overview", getDashboardOverviewController);
 router.get("/dashboard/inventory", getDashboardInventoryController);
+
+router.get("/reports/overview", reportOverviewController);
+router.get("/reports/categories", categoryAnalyticsController);
+router.get("/reports/locations", locationAnalyticsController);
+router.get("/reports/payments", paymentAnalyticsController);
+router.get("/reports/inventory", inventoryAnalyticsController);
+router.get("/reports/vip-customers", vipCustomersController);
 
 router.get("/categories", listAdminCategoriesController);
 router.get("/categories/tree", getAdminCategoryTreeController);
