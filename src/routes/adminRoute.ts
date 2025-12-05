@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { Role } from "@prisma/client";
 import {
   listProvincesController,
   listDistrictsController,
@@ -33,44 +34,65 @@ import {
   reportOverviewController,
   vipCustomersController,
 } from "../controllers/reportController";
+import { authenticateJWT, authorizeRoles } from "../middleware/authMiddleware";
 
 const router = Router();
+
+// 1. Áp dụng xác thực đăng nhập cho TẤT CẢ các route trong file này
+router.use(authenticateJWT);
 
 router.get("/provinces", listProvincesController);
 router.get("/districts", listDistrictsController);
 router.get("/wards", listWardsController);
 
-router.get("/users", listAdminUsersController);
-router.post("/users", createAdminUserController);
-router.patch("/users/:userId", updateAdminUserController);
-router.patch("/users/:userId/status", updateAdminUserStatusController);
-router.delete("/users/:userId", deleteAdminUserController);
+// ==================================================================
+// NHÓM 1: STAFF & ADMIN CÙNG TRUY CẬP ĐƯỢC
+// (Dashboard cơ bản, Đơn hàng, Kho)
+// ==================================================================
 
-router.get("/dashboard/overview", getDashboardOverviewController);
-router.get("/dashboard/inventory", getDashboardInventoryController);
+// Dashboard & Inventory (Staff cần xem kho và tổng quan đơn hàng)
+router.get("/dashboard/overview", authorizeRoles(Role.STAFF, Role.ADMIN), getDashboardOverviewController);
+router.get("/dashboard/inventory", authorizeRoles(Role.STAFF, Role.ADMIN), getDashboardInventoryController);
 
-router.get("/reports/overview", reportOverviewController);
-router.get("/reports/categories", categoryAnalyticsController);
-router.get("/reports/locations", locationAnalyticsController);
-router.get("/reports/payments", paymentAnalyticsController);
-router.get("/reports/inventory", inventoryAnalyticsController);
-router.get("/reports/vip-customers", vipCustomersController);
+// Quản lý Đơn hàng (Staff cần xử lý đơn)
+router.get("/orders", authorizeRoles(Role.STAFF, Role.ADMIN), listAdminOrdersController);
+router.get("/orders/:orderId", authorizeRoles(Role.STAFF, Role.ADMIN), getAdminOrderDetailController);
+router.patch("/orders/:orderId/status", authorizeRoles(Role.STAFF, Role.ADMIN), updateAdminOrderStatusController);
 
-router.get("/categories", listAdminCategoriesController);
-router.get("/categories/tree", getAdminCategoryTreeController);
-router.get("/categories/:categoryId", getAdminCategoryDetailController);
-router.post("/categories", createAdminCategoryController);
-router.patch("/categories/:categoryId", updateAdminCategoryController);
-router.delete("/categories/:categoryId", deleteAdminCategoryController);
+// ==================================================================
+// NHÓM 2: CHỈ ADMIN MỚI ĐƯỢC TRUY CẬP (Rất quan trọng)
+// (Báo cáo doanh thu, Quản lý User, Sản phẩm, Danh mục)
+// ==================================================================
 
-router.get("/orders", listAdminOrdersController);
-router.get("/orders/:orderId", getAdminOrderDetailController);
-router.patch("/orders/:orderId/status", updateAdminOrderStatusController);
+// Báo cáo & Phân tích (Thường Staff không được xem doanh thu chi tiết)
+router.get("/reports/overview", authorizeRoles(Role.ADMIN), reportOverviewController);
+router.get("/reports/categories", authorizeRoles(Role.ADMIN), categoryAnalyticsController);
+router.get("/reports/locations", authorizeRoles(Role.ADMIN), locationAnalyticsController);
+router.get("/reports/payments", authorizeRoles(Role.ADMIN), paymentAnalyticsController);
+router.get("/reports/inventory", authorizeRoles(Role.ADMIN), inventoryAnalyticsController);
+router.get("/reports/vip-customers", authorizeRoles(Role.ADMIN), vipCustomersController);
 
-router.get("/products", listAdminProductsController);
-router.get("/products/:productId", getAdminProductDetailController);
-router.post("/products", createAdminProductController);
-router.patch("/products/:productId", updateAdminProductController);
-router.delete("/products/:productId", deleteAdminProductController);
+// Quản lý Danh mục (Chỉ Admin)
+router.get("/categories", authorizeRoles(Role.ADMIN), listAdminCategoriesController);
+router.get("/categories/tree", authorizeRoles(Role.ADMIN), getAdminCategoryTreeController);
+router.get("/categories/:categoryId", authorizeRoles(Role.ADMIN), getAdminCategoryDetailController);
+router.post("/categories", authorizeRoles(Role.ADMIN), createAdminCategoryController);
+router.patch("/categories/:categoryId", authorizeRoles(Role.ADMIN), updateAdminCategoryController);
+router.delete("/categories/:categoryId", authorizeRoles(Role.ADMIN), deleteAdminCategoryController);
+
+// Quản lý Sản phẩm (Chỉ Admin - hoặc Staff nếu bạn muốn cho phép Staff sửa sp)
+// Theo báo cáo thì chỉ Admin quản lý Products
+router.get("/products", authorizeRoles(Role.ADMIN), listAdminProductsController);
+router.get("/products/:productId", authorizeRoles(Role.ADMIN), getAdminProductDetailController);
+router.post("/products", authorizeRoles(Role.ADMIN), createAdminProductController);
+router.patch("/products/:productId", authorizeRoles(Role.ADMIN), updateAdminProductController);
+router.delete("/products/:productId", authorizeRoles(Role.ADMIN), deleteAdminProductController);
+
+// Quản lý User (Tuyệt đối chỉ Admin)
+router.get("/users", authorizeRoles(Role.ADMIN), listAdminUsersController);
+router.post("/users", authorizeRoles(Role.ADMIN), createAdminUserController);
+router.patch("/users/:userId", authorizeRoles(Role.ADMIN), updateAdminUserController);
+router.patch("/users/:userId/status", authorizeRoles(Role.ADMIN), updateAdminUserStatusController);
+router.delete("/users/:userId", authorizeRoles(Role.ADMIN), deleteAdminUserController);
 
 export default router;
