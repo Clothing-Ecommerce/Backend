@@ -38,33 +38,21 @@ import { authenticateJWT, authorizeRoles } from "../middleware/authMiddleware";
 
 const router = Router();
 
-// 1. Áp dụng xác thực đăng nhập cho TẤT CẢ các route trong file này
 router.use(authenticateJWT);
 
 router.get("/provinces", listProvincesController);
 router.get("/districts", listDistrictsController);
 router.get("/wards", listWardsController);
 
-// ==================================================================
-// NHÓM 1: STAFF & ADMIN CÙNG TRUY CẬP ĐƯỢC
-// (Dashboard cơ bản, Đơn hàng, Kho)
-// ==================================================================
-
-// Dashboard & Inventory (Staff cần xem kho và tổng quan đơn hàng)
+// STAFF & ADMIN CÙNG TRUY CẬP ĐƯỢC
 router.get("/dashboard/overview", authorizeRoles(Role.STAFF, Role.ADMIN), getDashboardOverviewController);
 router.get("/dashboard/inventory", authorizeRoles(Role.STAFF, Role.ADMIN), getDashboardInventoryController);
 
-// Quản lý Đơn hàng (Staff cần xử lý đơn)
 router.get("/orders", authorizeRoles(Role.STAFF, Role.ADMIN), listAdminOrdersController);
 router.get("/orders/:orderId", authorizeRoles(Role.STAFF, Role.ADMIN), getAdminOrderDetailController);
 router.patch("/orders/:orderId/status", authorizeRoles(Role.STAFF, Role.ADMIN), updateAdminOrderStatusController);
 
-// ==================================================================
-// NHÓM 2: CHỈ ADMIN MỚI ĐƯỢC TRUY CẬP (Rất quan trọng)
-// (Báo cáo doanh thu, Quản lý User, Sản phẩm, Danh mục)
-// ==================================================================
-
-// Báo cáo & Phân tích (Thường Staff không được xem doanh thu chi tiết)
+// CHỈ ADMIN MỚI ĐƯỢC TRUY CẬP (Rất quan trọng)
 router.get("/reports/overview", authorizeRoles(Role.ADMIN), reportOverviewController);
 router.get("/reports/categories", authorizeRoles(Role.ADMIN), categoryAnalyticsController);
 router.get("/reports/locations", authorizeRoles(Role.ADMIN), locationAnalyticsController);
@@ -80,15 +68,14 @@ router.post("/categories", authorizeRoles(Role.ADMIN), createAdminCategoryContro
 router.patch("/categories/:categoryId", authorizeRoles(Role.ADMIN), updateAdminCategoryController);
 router.delete("/categories/:categoryId", authorizeRoles(Role.ADMIN), deleteAdminCategoryController);
 
-// Quản lý Sản phẩm (Chỉ Admin - hoặc Staff nếu bạn muốn cho phép Staff sửa sp)
-// Theo báo cáo thì chỉ Admin quản lý Products
+// Quản lý Sản phẩm (Chỉ Admin)
 router.get("/products", authorizeRoles(Role.ADMIN), listAdminProductsController);
 router.get("/products/:productId", authorizeRoles(Role.ADMIN), getAdminProductDetailController);
 router.post("/products", authorizeRoles(Role.ADMIN), createAdminProductController);
 router.patch("/products/:productId", authorizeRoles(Role.ADMIN), updateAdminProductController);
 router.delete("/products/:productId", authorizeRoles(Role.ADMIN), deleteAdminProductController);
 
-// Quản lý User (Tuyệt đối chỉ Admin)
+// Quản lý User (chỉ Admin)
 router.get("/users", authorizeRoles(Role.ADMIN), listAdminUsersController);
 router.post("/users", authorizeRoles(Role.ADMIN), createAdminUserController);
 router.patch("/users/:userId", authorizeRoles(Role.ADMIN), updateAdminUserController);
