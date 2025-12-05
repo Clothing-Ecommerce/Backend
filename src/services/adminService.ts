@@ -935,6 +935,7 @@ export interface AdminProductDetail {
   slug: string;
   description: string | null;
   basePrice: number;
+  totalStock: number;
   category: { id: number; name: string } | null;
   brand: { id: number; name: string } | null;
   features: Prisma.JsonValue | null;
@@ -1132,6 +1133,98 @@ export const updateAdminProduct = async (
   return detail;
 };
 
+// export const listAdminProducts = async (
+//   options: AdminProductListOptions = {},
+// ): Promise<AdminProductListResponse> => {
+//   const page = Number.isFinite(options.page) && options.page && options.page > 0 ? Math.floor(options.page) : 1;
+//   const rawPageSize =
+//     Number.isFinite(options.pageSize) && options.pageSize && options.pageSize > 0
+//       ? Math.floor(options.pageSize)
+//       : 20;
+//   const pageSize = Math.min(rawPageSize, 100);
+
+//   const where: Prisma.ProductWhereInput = {};
+
+//   if (typeof options.search === "string" && options.search.trim().length) {
+//     const search = options.search.trim();
+//     where.OR = [
+//       { name: { contains: search, mode: "insensitive" } },
+//       { slug: { contains: search, mode: "insensitive" } },
+//     ];
+//   }
+
+//   if (Number.isFinite(options.categoryId)) {
+//     where.categoryId = options.categoryId as number;
+//   }
+
+//   const products = await prisma.product.findMany({
+//     where,
+//     orderBy: { createdAt: "desc" },
+//     include: {
+//       category: { select: { id: true, name: true } },
+//       brand: { select: { id: true, name: true } },
+//       images: {
+//         where: { isPrimary: true },
+//         orderBy: { sortOrder: "asc" },
+//         take: 1,
+//         select: { url: true },
+//       },
+//       variants: {
+//         where: { isActive: true },
+//         select: { id: true, stock: true, price: true },
+//       },
+//     },
+//   });
+
+//   const items: AdminProductListItem[] = products.map((product) => {
+//     const totalStock = product.variants.reduce((sum, variant) => sum + (variant.stock ?? 0), 0);
+//     const priceCandidates = product.variants.map((variant) => decimalToNumber(variant.price ?? product.basePrice));
+//     const price = priceCandidates.length
+//       ? Math.min(...priceCandidates)
+//       : decimalToNumber(product.basePrice);
+
+//     let stockStatus: AdminProductStockStatus = "in-stock";
+//     if (totalStock <= 0) {
+//       stockStatus = "out-of-stock";
+//     } else if (totalStock <= ADMIN_LOW_STOCK_THRESHOLD) {
+//       stockStatus = "low-stock";
+//     }
+
+//     return {
+//       id: product.id,
+//       name: product.name,
+//       slug: product.slug,
+//       category: product.category,
+//       brand: product.brand,
+//       price,
+//       totalStock,
+//       stockStatus,
+//       variants: product.variants.length,
+//       imageUrl: product.images[0]?.url ?? null,
+//       createdAt: product.createdAt.toISOString(),
+//       updatedAt: product.updatedAt.toISOString(),
+//     };
+//   });
+
+//   const filteredItems = options.status
+//     ? items.filter((item) => item.stockStatus === options.status)
+//     : items;
+
+//   const totalItems = filteredItems.length;
+//   const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize);
+//   const start = (page - 1) * pageSize;
+//   const pagedItems = filteredItems.slice(start, start + pageSize);
+
+//   return {
+//     products: pagedItems,
+//     pagination: {
+//       page,
+//       pageSize,
+//       totalItems,
+//       totalPages,
+//     },
+//   };
+// };
 export const listAdminProducts = async (
   options: AdminProductListOptions = {},
 ): Promise<AdminProductListResponse> => {
@@ -1141,6 +1234,7 @@ export const listAdminProducts = async (
       ? Math.floor(options.pageSize)
       : 20;
   const pageSize = Math.min(rawPageSize, 100);
+  const skip = (page - 1) * pageSize;
 
   const where: Prisma.ProductWhereInput = {};
 
@@ -1156,9 +1250,16 @@ export const listAdminProducts = async (
     where.categoryId = options.categoryId as number;
   }
 
+  // TỐI ƯU: Nếu không lọc theo status, ta phân trang ngay tại DB để tăng tốc độ
+  const isFilteringStatus = !!options.status;
+  const dbTotal = !isFilteringStatus ? await prisma.product.count({ where }) : 0;
+
   const products = await prisma.product.findMany({
     where,
     orderBy: { createdAt: "desc" },
+    // Chỉ skip/take tại DB nếu không cần lọc status thủ công
+    skip: !isFilteringStatus ? skip : undefined,
+    take: !isFilteringStatus ? pageSize : undefined,
     include: {
       category: { select: { id: true, name: true } },
       brand: { select: { id: true, name: true } },
@@ -1185,7 +1286,7 @@ export const listAdminProducts = async (
     let stockStatus: AdminProductStockStatus = "in-stock";
     if (totalStock <= 0) {
       stockStatus = "out-of-stock";
-    } else if (totalStock <= ADMIN_LOW_STOCK_THRESHOLD) {
+    } else if (totalStock <= (ADMIN_LOW_STOCK_THRESHOLD || 10)) {
       stockStatus = "low-stock";
     }
 
@@ -1205,26 +1306,94 @@ export const listAdminProducts = async (
     };
   });
 
-  const filteredItems = options.status
-    ? items.filter((item) => item.stockStatus === options.status)
-    : items;
+  // Xử lý kết quả cuối cùng
+  let resultItems = items;
+  let resultTotal = dbTotal;
 
-  const totalItems = filteredItems.length;
-  const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize);
-  const start = (page - 1) * pageSize;
-  const pagedItems = filteredItems.slice(start, start + pageSize);
+  if (isFilteringStatus) {
+    // Nếu có lọc status, ta lọc trên danh sách memory và tự cắt trang
+    const filtered = items.filter((item) => item.stockStatus === options.status);
+    resultTotal = filtered.length;
+    const start = (page - 1) * pageSize;
+    resultItems = filtered.slice(start, start + pageSize);
+  }
+
+  const totalPages = resultTotal === 0 ? 0 : Math.ceil(resultTotal / pageSize);
 
   return {
-    products: pagedItems,
+    products: resultItems,
     pagination: {
       page,
       pageSize,
-      totalItems,
+      totalItems: resultTotal,
       totalPages,
     },
   };
 };
 
+// export const getAdminProductDetail = async (
+//   productId: number,
+// ): Promise<AdminProductDetail | null> => {
+//   if (!Number.isFinite(productId) || productId <= 0) return null;
+
+//   const product = await prisma.product.findUnique({
+//     where: { id: Math.floor(productId) },
+//     include: {
+//       category: { select: { id: true, name: true } },
+//       brand: { select: { id: true, name: true } },
+//       images: {
+//         orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }],
+//         select: { id: true, url: true, alt: true, isPrimary: true, sortOrder: true },
+//       },
+//       variants: {
+//         orderBy: { id: "asc" },
+//         include: {
+//           size: { select: { id: true, name: true } },
+//           color: { select: { id: true, name: true, hex: true } },
+//         },
+//       },
+//     },
+//   });
+
+//   if (!product) return null;
+
+//   const variants: AdminProductDetailVariant[] = product.variants.map((variant) => ({
+//     id: variant.id,
+//     sku: variant.sku,
+//     price: decimalToNumber(variant.price ?? product.basePrice),
+//     stock: variant.stock ?? 0,
+//     sizeId: variant.size?.id ?? null,
+//     sizeName: variant.size?.name ?? null,
+//     colorId: variant.color?.id ?? null,
+//     colorName: variant.color?.name ?? null,
+//     colorHex: variant.color?.hex ?? null,
+//     isActive: variant.isActive,
+//   }));
+
+//   const images: AdminProductDetailImage[] = product.images.map((image) => ({
+//     id: image.id,
+//     url: image.url,
+//     alt: image.alt ?? null,
+//     isPrimary: image.isPrimary,
+//     sortOrder: image.sortOrder,
+//   }));
+
+//   return {
+//     id: product.id,
+//     name: product.name,
+//     slug: product.slug,
+//     description: product.description,
+//     basePrice: decimalToNumber(product.basePrice),
+//     category: product.category,
+//     brand: product.brand,
+//     features: product.features,
+//     specifications: product.specifications,
+//     images,
+//     variants,
+//     createdAt: product.createdAt.toISOString(),
+//     updatedAt: product.updatedAt.toISOString(),
+//   };
+// };
 export const getAdminProductDetail = async (
   productId: number,
 ): Promise<AdminProductDetail | null> => {
@@ -1243,13 +1412,16 @@ export const getAdminProductDetail = async (
         orderBy: { id: "asc" },
         include: {
           size: { select: { id: true, name: true } },
-          color: { select: { id: true, name: true, hex: true } },
+          color: { select: { id: true, name: true, hex: true } }, // Đã có hex
         },
       },
     },
   });
 
   if (!product) return null;
+
+  // [MỚI] Tính tổng tồn kho để trả về cho frontend
+  const totalStock = product.variants.reduce((sum, variant) => sum + (variant.stock ?? 0), 0);
 
   const variants: AdminProductDetailVariant[] = product.variants.map((variant) => ({
     id: variant.id,
@@ -1278,6 +1450,7 @@ export const getAdminProductDetail = async (
     slug: product.slug,
     description: product.description,
     basePrice: decimalToNumber(product.basePrice),
+    totalStock, // <--- BỔ SUNG TRƯỜNG NÀY
     category: product.category,
     brand: product.brand,
     features: product.features,
