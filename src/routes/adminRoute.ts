@@ -51,11 +51,11 @@ router.get("/orders", authorizeRoles(Role.STAFF, Role.ADMIN), listAdminOrdersCon
 router.get("/orders/:orderId", authorizeRoles(Role.STAFF, Role.ADMIN), getAdminOrderDetailController);
 router.patch("/orders/:orderId/status", authorizeRoles(Role.STAFF, Role.ADMIN), updateAdminOrderStatusController);
 
-router.get("/reports/overview", authorizeRoles(Role.ADMIN), reportOverviewController);
-router.get("/reports/categories", authorizeRoles(Role.ADMIN), categoryAnalyticsController);
-router.get("/reports/locations", authorizeRoles(Role.ADMIN), locationAnalyticsController);
+router.get("/reports/overview", authorizeRoles(Role.STAFF, Role.ADMIN), reportOverviewController);
+router.get("/reports/categories", authorizeRoles(Role.STAFF, Role.ADMIN), categoryAnalyticsController);
+router.get("/reports/locations", authorizeRoles(Role.STAFF, Role.ADMIN), locationAnalyticsController);
 router.get("/reports/payments", authorizeRoles(Role.ADMIN), paymentAnalyticsController);
-router.get("/reports/inventory", authorizeRoles(Role.ADMIN), inventoryAnalyticsController);
+router.get("/reports/inventory", authorizeRoles(Role.STAFF,Role.ADMIN), inventoryAnalyticsController);
 router.get("/reports/vip-customers", authorizeRoles(Role.ADMIN), vipCustomersController);
 
 // Category Management
