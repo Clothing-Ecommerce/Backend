@@ -1032,7 +1032,7 @@ export const createAdminProduct = async (
   });
 
   if (!created) {
-    throw new Error("Không thể lấy thông tin sản phẩm vừa tạo");
+    throw new Error("Unable to get information of newly created product");
   }
 
   const totalStock = created.variants.reduce(
@@ -1412,7 +1412,7 @@ export const getAdminProductDetail = async (
         orderBy: { id: "asc" },
         include: {
           size: { select: { id: true, name: true } },
-          color: { select: { id: true, name: true, hex: true } }, // Đã có hex
+          color: { select: { id: true, name: true, hex: true } },
         },
       },
     },
@@ -1420,7 +1420,6 @@ export const getAdminProductDetail = async (
 
   if (!product) return null;
 
-  // [MỚI] Tính tổng tồn kho để trả về cho frontend
   const totalStock = product.variants.reduce((sum, variant) => sum + (variant.stock ?? 0), 0);
 
   const variants: AdminProductDetailVariant[] = product.variants.map((variant) => ({
@@ -1450,7 +1449,7 @@ export const getAdminProductDetail = async (
     slug: product.slug,
     description: product.description,
     basePrice: decimalToNumber(product.basePrice),
-    totalStock, // <--- BỔ SUNG TRƯỜNG NÀY
+    totalStock,
     category: product.category,
     brand: product.brand,
     features: product.features,
@@ -1464,7 +1463,7 @@ export const getAdminProductDetail = async (
 
 export const deleteAdminProduct = async (productId: number): Promise<void> => {
   if (!Number.isFinite(productId) || productId <= 0) {
-    throw new AdminProductActionError("INVALID_PRODUCT_ID", "Mã sản phẩm không hợp lệ", 400);
+    throw new AdminProductActionError("INVALID_PRODUCT_ID", "Invalid product ID", 400);
   }
 
   await prisma.$transaction(async (tx) => {
@@ -1477,7 +1476,7 @@ export const deleteAdminProduct = async (productId: number): Promise<void> => {
     });
 
     if (!product) {
-      throw new AdminProductActionError("PRODUCT_NOT_FOUND", "Không tìm thấy sản phẩm", 404);
+      throw new AdminProductActionError("PRODUCT_NOT_FOUND", "No products found", 404);
     }
 
     const variantIds = product.variants.map((variant) => variant.id);
@@ -1490,7 +1489,7 @@ export const deleteAdminProduct = async (productId: number): Promise<void> => {
       if (relatedOrders > 0) {
         throw new AdminProductActionError(
           "PRODUCT_HAS_ORDERS",
-          "Sản phẩm đã phát sinh đơn hàng nên không thể xóa",
+          "The product has been ordered and cannot be deleted.",
           409,
         );
       }
