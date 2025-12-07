@@ -23,9 +23,7 @@ export const authenticateJWT = (
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res
-      .status(401)
-      .json({ message: "Không có token hoặc định dạng không hợp lệ" });
+    return res.status(401).json({ message: "No token or invalid format" });
   }
 
   const token = authHeader.split(" ")[1];
@@ -34,30 +32,31 @@ export const authenticateJWT = (
     const decoded = jwt.verify(token, jwtConfig.jwtSecretKey);
 
     if (typeof decoded === "string") {
-      return res.status(403).json({ message: "Token không hợp lệ" });
+      return res.status(403).json({ message: "Invalid token" });
     }
 
     req.user = decoded as AuthenticatedUserPayload;
     next();
   } catch (err) {
     console.error("JWT error:", err);
-    res.status(403).json({ message: "Token không hợp lệ hoặc đã hết hạn" });
+    res.status(403).json({ message: "Token is invalid or expired" });
   }
 };
 
-export const authorizeRoles = (...allowedRoles: Role[]) =>
+export const authorizeRoles =
+  (...allowedRoles: Role[]) =>
   (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     const userRole = req.user?.role;
 
     if (!userRole) {
       return res.status(401).json({
-        message: "Người dùng chưa được xác thực",
+        message: "Unauthenticated user",
       });
     }
 
     if (!allowedRoles.includes(userRole)) {
       return res.status(403).json({
-        message: "Bạn không có quyền truy cập tài nguyên này",
+        message: "You do not have permission to access this resource",
       });
     }
 
