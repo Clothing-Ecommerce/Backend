@@ -59,48 +59,6 @@ export const momoWebhookController = async (req: any, res: Response) => {
     return res.status(200).json({ resultCode: 1, message: "error" });
   }
 };
-//   req: AuthenticatedRequest,
-//   res: Response
-// ) => {
-//   try {
-//     const userId = req.user?.userId;
-//     if (!userId) return res.status(401).json({ code: "UNAUTHENTICATED" });
-
-//     const paymentId = Number(req.params.paymentId);
-//     if (!Number.isSafeInteger(paymentId) || paymentId <= 0)
-//       return res.status(400).json({ code: "INVALID_PAYMENT_ID" });
-
-//     // luôn trả về { success, momoResp }
-//     const { success, momoResp } = await syncPaymentStatus(userId, paymentId);
-//     return res.status(200).json({ success, momoResp });
-//   } catch (err: any) {
-//     const code = err?.message || "SERVER_ERROR";
-
-//     if (code === "PAYMENT_NOT_FOUND_OR_FORBIDDEN") {
-//       return res.status(404).json({
-//         code,
-//         message: "Không tìm thấy payment hoặc không thuộc về bạn",
-//       });
-//     }
-
-//     if (code === "MISSING_PROVIDER_IDS") {
-//       return res.status(400).json({
-//         code,
-//         message: "Payment chưa có providerRequestId/orderId, không thể sync",
-//       });
-//     }
-
-//     if (code === "GATEWAY_ERROR") {
-//       return res.status(502).json({
-//         code,
-//         message: "MoMo gateway trả lỗi, vui lòng thử lại",
-//       });
-//     }
-
-//     console.error("paymentSyncController", err);
-//     return res.status(500).json({ code: "SERVER_ERROR" });
-//   }
-// };
 
 export const paymentSyncController = async (req: AuthenticatedRequest, res: Response) => {
   try {
