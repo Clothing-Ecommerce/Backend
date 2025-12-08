@@ -2315,12 +2315,12 @@ export const updateAdminOrderStatus = async (
   const { orderId, status, note, actorId } = input;
 
   if (!Number.isFinite(orderId) || orderId <= 0) {
-    throw new AdminOrderActionError("INVALID_ORDER_ID", "orderId không hợp lệ", 400);
+    throw new AdminOrderActionError("INVALID_ORDER_ID", "orderId is invalid", 400);
   }
 
   const prismaStatuses = ADMIN_STATUS_TO_ORDER_STATUS[status];
   if (!prismaStatuses || !prismaStatuses.length) {
-    throw new AdminOrderActionError("INVALID_STATUS", "Trạng thái không hợp lệ", 400);
+    throw new AdminOrderActionError("INVALID_STATUS", "status is invalid", 400);
   }
 
   const normalizedNote = typeof note === "string" ? note.trim() : "";
@@ -2338,7 +2338,7 @@ export const updateAdminOrderStatus = async (
     });
 
     if (!order) {
-      throw new AdminOrderActionError("ORDER_NOT_FOUND", "Không tìm thấy đơn hàng", 404);
+      throw new AdminOrderActionError("ORDER_NOT_FOUND", "no order found", 404);
     }
 
     const targetStatus = pickTargetOrderStatus(order.status, prismaStatuses);
@@ -2390,7 +2390,7 @@ export const updateAdminOrderStatus = async (
   ]);
 
   if (!summaryRecord || !detail) {
-    throw new AdminOrderActionError("ORDER_NOT_FOUND", "Không tìm thấy đơn hàng", 404);
+    throw new AdminOrderActionError("ORDER_NOT_FOUND", "order not found", 404);
   }
 
   const summary = mapOrderToAdminSummary(summaryRecord);
