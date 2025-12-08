@@ -437,7 +437,7 @@ export const getLocationAnalytics = async (
   const locationMap = new Map<string, number>();
 
   for (const order of orders) {
-    const location = order.address?.provinceName || order.address?.districtName || "Không rõ";
+    const location = order.address?.provinceName || order.address?.districtName || "Unknown";
     const previous = locationMap.get(location) ?? 0;
     locationMap.set(location, previous + 1);
   }
