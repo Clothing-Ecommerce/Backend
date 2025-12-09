@@ -2,15 +2,17 @@ import prisma from "../database/prismaClient";
 
 export async function getBrands() {
   const brands = await prisma.brand.findMany({
-    select: { id: true, name: true },
+    select: { id: true, name: true, logoUrl: true },
     orderBy: { name: "asc" },
   });
 
-  // const allBrandsOption = { id: "all", name: "All Brands" };
-  // return [allBrandsOption, ...brands];
+  const mapped = brands.map((b) => ({
+    id: String(b.id),
+    name: b.name,
+    logoUrl: b.logoUrl ?? null,
+  }));
 
-  const mapped = brands.map((b) => ({ id: String(b.id), name: b.name }));
-  return [{ id: "all", name: "All Brands" }, ...mapped];
+  return [{ id: "all", name: "All Brands", logoUrl: null }, ...mapped];
 }
 
 // export const getBrands = async () => {

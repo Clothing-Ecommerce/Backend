@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { OrderStatus, Prisma } from "@prisma/client";
 import prisma from "../database/prismaClient";
 
 // ---------- Types ----------
@@ -48,6 +48,11 @@ export interface ProductCardDTO {
   inStock: boolean;
 }
 
+export interface BestSellingProductDTO extends ProductCardDTO {
+  unitsSold: number;
+  revenue: number;
+}
+
 export interface VariantOptionDTO {
   id: number;
   colorId: number | null;
@@ -81,6 +86,14 @@ function decToNum(d: any): number {
   const n = Number(d);
   return Number.isFinite(n) ? n : 0;
 }
+
+const REVENUE_STATUSES: OrderStatus[] = [
+  OrderStatus.CONFIRMED,
+  OrderStatus.PAID,
+  OrderStatus.FULFILLING,
+  OrderStatus.SHIPPED,
+  OrderStatus.COMPLETED,
+];
 
 type VariantWithPrices = {
   id: number;
@@ -542,6 +555,121 @@ export async function getProductVariants(
     stock: v.stock,
     isActive: v.isActive,
   }));
+}
+
+export async function getBestSellingProducts(limit = 8): Promise<BestSellingProductDTO[]> {
+  const normalizedLimit =
+    Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 20) : 8;
+
+  const orderItems = await prisma.orderItem.findMany({
+    where: { order: { status: { in: REVENUE_STATUSES } } },
+    select: {
+      quantity: true,
+      priceAtTime: true,
+      variant: { select: { productId: true } },
+    },
+  });
+
+  const productSales = new Map<number, { units: number; revenue: number }>();
+  for (const item of orderItems) {
+    const productId = item.variant?.productId;
+    if (!productId) continue;
+
+    const bucket = productSales.get(productId) ?? { units: 0, revenue: 0 };
+    bucket.units += item.quantity;
+    bucket.revenue += decToNum(item.priceAtTime) * item.quantity;
+    productSales.set(productId, bucket);
+  }
+
+  const sorted = Array.from(productSales.entries())
+    .map(([productId, metrics]) => ({
+      productId,
+      unitsSold: metrics.units,
+      revenue: metrics.revenue,
+    }))
+    .sort((a, b) =>
+      b.unitsSold - a.unitsSold !== 0
+        ? b.unitsSold - a.unitsSold
+        : b.revenue - a.revenue
+    )
+    .slice(0, normalizedLimit);
+
+  const productIds = sorted.map((item) => item.productId);
+  if (!productIds.length) return [];
+
+  const now = new Date();
+  const products = await prisma.product.findMany({
+    where: { id: { in: productIds } },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      basePrice: true,
+      category: { select: { id: true, name: true } },
+      brand: { select: { id: true, name: true } },
+      images: {
+        where: { isPrimary: true },
+        orderBy: { sortOrder: "asc" },
+        take: 1,
+        select: { id: true, url: true, alt: true },
+      },
+      variants: {
+        where: { isActive: true },
+        select: {
+          id: true,
+          price: true,
+          isActive: true,
+          stock: true,
+          prices: {
+            where: {
+              OR: [{ startAt: null }, { startAt: { lte: now } }],
+              AND: [{ OR: [{ endAt: null }, { endAt: { gte: now } }] }],
+            },
+            orderBy: { startAt: "desc" },
+            take: 4,
+            select: { type: true, amount: true, startAt: true, endAt: true },
+          },
+        },
+      },
+    },
+  });
+
+  const productMap = new Map(products.map((p) => [p.id, p]));
+  const result: BestSellingProductDTO[] = [];
+
+  for (const item of sorted) {
+    const p = productMap.get(item.productId);
+    if (!p) continue;
+
+    const { effective } = computeProductEffectivePrice(
+      p.basePrice as unknown as Prisma.Decimal,
+      p.variants as any
+    );
+    const totalStock = p.variants.reduce((acc, variant) => acc + (variant.stock ?? 0), 0);
+
+    result.push({
+      id: p.id,
+      name: p.name,
+      slug: p.slug ?? null,
+      category: p.category,
+      brand: p.brand,
+      image: p.images[0]
+        ? {
+            id: p.images[0].id,
+            url: p.images[0].url,
+            alt: p.images[0].alt ?? null,
+          }
+        : null,
+      effectivePrice: effective,
+      compareAtPrice: null,
+      totalStock,
+      inStock: totalStock > 0,
+      unitsSold: item.unitsSold,
+      revenue: item.revenue,
+    });
+  }
+
+  return result;
 }
 
 export async function getSearchSuggestions(

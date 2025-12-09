@@ -8,6 +8,7 @@ import {
   type GetProductsParams,
   type SortBy,
   getSearchSuggestions,
+  getBestSellingProducts,
 } from "../services/productService";
 
 function parseIntOrNull(v?: string) {
@@ -182,6 +183,19 @@ export const getProductVariantsController = async (req: Request, res: Response) 
     return res.json(variants); // return array
   } catch (err: any) {
     console.error("getProductVariantsController error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const getBestSellingProductsController = async (req: Request, res: Response) => {
+  try {
+    const limit = Number.parseInt(String(req.query.limit ?? ""), 10);
+    const products = await getBestSellingProducts(
+      Number.isFinite(limit) && limit > 0 ? limit : 8
+    );
+    return res.json({ products });
+  } catch (err: any) {
+    console.error("getBestSellingProductsController error:", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 };
