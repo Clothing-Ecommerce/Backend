@@ -233,7 +233,7 @@ export const deleteAddressController = async (
 
     const result = await deleteUserAddress(userId, addressId);
     return res.status(200).json({
-      message: "Xoá địa chỉ thành công",
+      message: "Address deleted successfully.",
       ...result,
     });
   } catch (err) {

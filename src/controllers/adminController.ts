@@ -533,7 +533,7 @@ export const createAdminProductController = async (req: Request, res: Response) 
     });
 
     return res.status(201).json({
-      message: "Tạo sản phẩm thành công",
+      message: "Create a successful product.",
       product,
     });
   } catch (error) {
@@ -604,7 +604,7 @@ export const updateAdminProductController = async (req: Request, res: Response) 
     });
 
     return res.status(200).json({
-      message: "Cập nhật sản phẩm thành công",
+      message: "Product update successful",
       product,
     });
   } catch (error) {
@@ -731,7 +731,7 @@ export const updateAdminOrderStatusController = async (
     });
 
     return res.status(200).json({
-      message: "Cập nhật trạng thái thành công",
+      message: "Status update successful",
       order: result.detail,
       summary: result.summary,
       status: result.status,

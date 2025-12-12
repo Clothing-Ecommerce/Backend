@@ -220,13 +220,13 @@ export type AdminOrderStatus =
 export type AdminOrderPaymentDisplay = "COD" | "Online";
 
 const ADMIN_STATUS_LABELS: Record<AdminOrderStatus, string> = {
-  pending: "Chờ xác nhận",
-  processing: "Đang xử lý",
-  packed: "Đã đóng gói",
-  shipping: "Đang giao",
-  completed: "Hoàn tất",
-  cancelled: "Đã huỷ",
-  refunded: "Hoàn tiền",
+  pending: "Awaiting confirmation",
+  processing: "Processing",
+  packed: "Packed",
+  shipping: "Shipping",
+  completed: "Completed",
+  cancelled: "Cancelled",
+  refunded: "Refunded",
 };
 
 const ORDER_STATUS_TO_ADMIN_STATUS: Record<OrderStatus, AdminOrderStatus> = {
