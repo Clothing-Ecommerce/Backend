@@ -12,9 +12,6 @@ import momoEnv, {
   verifyIpnSignature,
 } from "../utils/momo";
 
-/**
- * Tạo 1 attempt MoMo (Collection Link) cho một Order
- */
 export async function createAttemptMomo(
   userId: number,
   orderId: number,
@@ -61,7 +58,7 @@ export async function createAttemptMomo(
     partnerCode: momoEnv.partnerCode,
     accessKey: momoEnv.accessKey,
     requestId: providerRequestId,
-    amount: String(order.total), // Decimal -> string
+    amount: String(order.total),
     orderId: providerOrderId,
     orderInfo: opts?.orderInfo ?? `Order #${orderId}`,
     redirectUrl: momoEnv.redirectUrl,
@@ -80,7 +77,6 @@ export async function createAttemptMomo(
     signature,
   };
 
-  // 1) Ghi attempt trước (PENDING)
   const created = await prisma.payment.create({
     data: {
       orderId,
@@ -95,7 +91,6 @@ export async function createAttemptMomo(
     },
   });
 
-  // 2) Gọi MoMo /create với axios
   const createUrl = momoEnv.endpoint + momoEnv.createPath;
   const momoResp = await axios
     .post<any>(createUrl, requestBody, {
@@ -104,7 +99,6 @@ export async function createAttemptMomo(
     })
     .then((r) => r.data)
     .catch(async (err) => {
-      // Lưu message lỗi vào Payment để dễ debug
       await prisma.payment.update({
         where: { id: created.id },
         data: {
@@ -116,7 +110,6 @@ export async function createAttemptMomo(
       throw err;
     });
 
-  // 3) Cập nhật kết quả tạo link
   await prisma.payment.update({
     where: { id: created.id },
     data: {
@@ -133,14 +126,9 @@ export async function createAttemptMomo(
   };
 }
 
-/**
- * Xử lý IPN MoMo (verify chữ ký, cập nhật Payment/Order, log webhook)
- * Trả về { ok: boolean, success?: boolean }
- */
 export async function handleMomoIpn(rawBody: any) {
   const verified = verifyIpnSignature(rawBody);
 
-  // Tìm payment theo requestId hoặc orderId do MoMo gửi lại
   const payment = await prisma.payment.findFirst({
     where: {
       OR: [
@@ -152,11 +140,9 @@ export async function handleMomoIpn(rawBody: any) {
   });
 
   if (!verified || !payment) {
-    // Không ghi log nếu không map được payment (tuỳ chính sách, có thể ghi vào logging khác)
     return { ok: false, code: "INVALID_SIGNATURE_OR_PAYMENT" };
   }
 
-  // Log webhook (đã map đúng payment)
   await prisma.paymentWebhook.create({
     data: {
       paymentId: payment.id,
@@ -174,7 +160,6 @@ export async function handleMomoIpn(rawBody: any) {
   const success = Number(rawBody.resultCode) === 0;
   const authorized = Number(rawBody.resultCode) === 9000;
 
-  // Cập nhật trạng thái theo IPN
   await prisma.$transaction(async (tx) => {
     await tx.payment.update({
       where: { id: payment.id },
@@ -227,9 +212,6 @@ export async function handleMomoIpn(rawBody: any) {
   return { ok: true, success };
 }
 
-/**
- * Gọi MoMo /query để đồng bộ trạng thái 1 payment
- */
 export async function syncPaymentStatus(userId: number, paymentId: number) {
   const pay = await prisma.payment.findUnique({
     where: { id: paymentId },
@@ -328,7 +310,6 @@ export async function syncPaymentStatus(userId: number, paymentId: number) {
   return { success: success || authorized, momoResp };
 }
 
-// === P1: Lấy chi tiết 1 payment attempt (check quyền sở hữu) ===
 export async function getPaymentById(userId: number, paymentId: number) {
   const p = await prisma.payment.findUnique({
     where: { id: paymentId },
@@ -338,7 +319,6 @@ export async function getPaymentById(userId: number, paymentId: number) {
     throw new Error("PAYMENT_NOT_FOUND_OR_FORBIDDEN");
   }
 
-  // Chuẩn hóa Decimal -> string để FE dễ hiển thị
   return {
     id: p.id,
     orderId: p.orderId,
@@ -379,7 +359,6 @@ export async function refundPayment(
     throw new Error("MISSING_PROVIDER_TRANS_ID");
   }
 
-  // Check tổng số tiền đã refund
   const refunded = await prisma.paymentRefund.aggregate({
     where: { paymentId },
     _sum: { amount: true },
@@ -389,7 +368,6 @@ export async function refundPayment(
     throw new Error("REFUND_AMOUNT_EXCEEDS_PAYMENT");
   }
 
-  // Build request tới MoMo
   const requestId = `${pay.providerRequestId}-refund-${Date.now()}`;
   const req = {
     partnerCode: momoEnv.partnerCode,
@@ -417,7 +395,6 @@ export async function refundPayment(
 
   const success = Number(momoResp?.resultCode) === 0;
 
-  // Save refund log
   const refund = await prisma.paymentRefund.create({
     data: {
       paymentId: pay.id,
