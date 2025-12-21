@@ -590,6 +590,23 @@ export const updateAdminProductController = async (req: Request, res: Response) 
         .filter((item) => item.url.trim().length)
     : undefined;
 
+  const variants = Array.isArray(body.variants)
+    ? body.variants
+        .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+        .map((item) => {
+          const stockValue = parseNumeric(item.stock);
+          return {
+            id: parseNumeric(item.id),
+            sku: typeof item.sku === "string" ? item.sku : undefined,
+            price: parseNumeric(item.price),
+            stock: typeof stockValue === "number" ? Math.max(0, Math.floor(stockValue)) : undefined,
+            sizeId: parseNumeric(item.sizeId),
+            colorId: parseNumeric(item.colorId),
+            isActive: typeof item.isActive === "boolean" ? item.isActive : undefined,
+          };
+        })
+    : undefined;
+
   try {
     const product = await updateAdminProduct(productId, {
       name,
@@ -601,6 +618,7 @@ export const updateAdminProductController = async (req: Request, res: Response) 
       features,
       specifications,
       images,
+      variants,
     });
 
     return res.status(200).json({

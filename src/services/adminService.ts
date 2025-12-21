@@ -823,6 +823,7 @@ export interface AdminProductImageInput {
 }
 
 export interface AdminProductVariantInput {
+  id?: number | null;
   sku?: string | null;
   price?: number | null;
   stock?: number | null;
@@ -844,7 +845,9 @@ export interface AdminCreateProductPayload {
   variants?: AdminProductVariantInput[];
 }
 
-export interface AdminUpdateProductPayload extends AdminCreateProductPayload {}
+export interface AdminUpdateProductPayload extends AdminCreateProductPayload {
+  variants?: AdminProductVariantInput[];
+}
 
 export interface AdminCreateProductResult {
   id: number;
@@ -1108,6 +1111,92 @@ export const updateAdminProduct = async (
       }
     }
 
+    if (Array.isArray(payload.variants)) {
+      const normalizedVariants = payload.variants.map((variant) => ({
+        id:
+          typeof variant.id === "number" && Number.isFinite(variant.id)
+            ? Math.floor(variant.id)
+            : null,
+        sku:
+          typeof variant.sku === "string"
+            ? variant.sku.trim()
+            : variant.sku === null
+            ? null
+            : undefined,
+        price:
+          typeof variant.price === "number" && Number.isFinite(variant.price)
+            ? new Prisma.Decimal(variant.price)
+            : variant.price === null
+            ? null
+            : undefined,
+        stock:
+          typeof variant.stock === "number" && Number.isFinite(variant.stock)
+            ? Math.max(0, Math.floor(variant.stock))
+            : undefined,
+        sizeId:
+          typeof variant.sizeId === "number" && Number.isFinite(variant.sizeId)
+            ? Math.floor(variant.sizeId)
+            : variant.sizeId === null
+            ? null
+            : undefined,
+        colorId:
+          typeof variant.colorId === "number" && Number.isFinite(variant.colorId)
+            ? Math.floor(variant.colorId)
+            : variant.colorId === null
+            ? null
+            : undefined,
+        isActive: typeof variant.isActive === "boolean" ? variant.isActive : undefined,
+      }));
+
+      const variantIds = normalizedVariants
+        .map((variant) => variant.id)
+        .filter((id): id is number => typeof id === "number");
+      const uniqueVariantIds = Array.from(new Set(variantIds));
+
+      if (uniqueVariantIds.length) {
+        const existingVariants = await tx.productVariant.findMany({
+          where: { id: { in: uniqueVariantIds }, productId: existing.id },
+          select: { id: true },
+        });
+
+        if (existingVariants.length !== uniqueVariantIds.length) {
+          throw new AdminProductActionError(
+            "VARIANT_NOT_FOUND",
+            "Không tìm thấy biến thể sản phẩm",
+            404,
+          );
+        }
+      }
+
+      for (const variant of normalizedVariants) {
+        if (typeof variant.id === "number") {
+          await tx.productVariant.update({
+            where: { id: variant.id },
+            data: {
+              sku: variant.sku,
+              price: variant.price,
+              stock: variant.stock,
+              sizeId: variant.sizeId,
+              colorId: variant.colorId,
+              isActive: variant.isActive,
+            },
+          });
+        } else {
+          await tx.productVariant.create({
+            data: {
+              productId: existing.id,
+              sku: variant.sku ?? null,
+              price: variant.price ?? null,
+              stock: typeof variant.stock === "number" ? variant.stock : 0,
+              sizeId: variant.sizeId ?? null,
+              colorId: variant.colorId ?? null,
+              isActive: variant.isActive ?? true,
+            },
+          });
+        }
+      }
+    }
+    
     return existing.id;
   });
 
